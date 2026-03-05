@@ -9,7 +9,8 @@ class VideoRecorder:
                  root_dir,
                  render_size=256,
                  fps=20,
-                 camera_id=0,
+                #  camera_id=0,
+                 camera_id="fixed_side",
                  use_wandb=False):
         if root_dir is not None:
             self.save_dir = root_dir / 'eval_video'
@@ -40,10 +41,10 @@ class VideoRecorder:
 
     def log_to_wandb(self):
         frames = np.transpose(np.array(self.frames), (0, 3, 1, 2))
-        fps, skip = 6, 8
+        fps, skip = 20, 2
         wandb.log({
             'eval/video':
-            wandb.Video(frames[::skip, :, ::2, ::2], fps=fps, format="gif")
+            wandb.Video(frames[::skip, :, :, :], fps=fps, format="gif")
         })
 
     def save(self, file_name):

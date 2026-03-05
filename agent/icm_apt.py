@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import utils
 from agent.ddpg import DDPGAgent
 
+# trunk: a linear layer that compresses the high-dimensional observation into a lower-dimensional representation
 
 class ICM(nn.Module):
     """
@@ -17,16 +18,19 @@ class ICM(nn.Module):
         self.trunk = nn.Sequential(nn.Linear(obs_dim, icm_rep_dim),
                                    nn.LayerNorm(icm_rep_dim), nn.Tanh())
 
+        # predicts the next state representation given the current state representation and the action taken
         self.forward_net = nn.Sequential(
             nn.Linear(icm_rep_dim + action_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, icm_rep_dim))
 
+        # Predicts the action taken given the current state representation and the next state representation.
         self.backward_net = nn.Sequential(
             nn.Linear(2 * icm_rep_dim, hidden_dim), nn.ReLU(),
             nn.Linear(hidden_dim, action_dim), nn.Tanh())
 
         self.apply(utils.weight_init)
 
+    
     def forward(self, obs, action, next_obs):
         assert obs.shape[0] == next_obs.shape[0]
         assert obs.shape[0] == action.shape[0]
@@ -54,7 +58,7 @@ class ICM(nn.Module):
 
 class ICMAPTAgent(DDPGAgent):
     def __init__(self, icm_scale, knn_rms, knn_k, knn_avg, knn_clip,
-                 update_encoder, icm_rep_dim, **kwargs):
+                 update_encoder, icm_rep_dim, encoder_type='cnn', **kwargs):
         super().__init__(**kwargs)
 
         self.icm_scale = icm_scale

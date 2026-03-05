@@ -26,3 +26,4 @@ knn_k: 12
 knn_avg: true
 knn_clip: 0.0
 update_encoder: ${update_encoder}
+encoder_type: clip  # Change this to 'cnn' for the baseline

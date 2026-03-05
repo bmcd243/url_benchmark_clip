@@ -31,6 +31,45 @@ class Encoder(nn.Module):
         return h
 
 
+class CLIPEncoder(nn.Module):
+    """A drop-in replacement for the URLB CNN Encoder that uses frozen CLIP."""
+    def __init__(self, device="cuda" if torch.cuda.is_available() else "cpu"):
+        super().__init__()
+        self.device = device
+        # Load CLIP once
+        self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
+        
+        # Freeze all CLIP parameters
+        for param in self.model.parameters():
+            param.requires_grad = False
+            
+        # URLB expects a specific property 'repr_dim' to build the Actor/Critic
+        self.repr_dim = 512 # ViT-B/32 embedding size
+
+        # Transform to resize URLB's 84x84 images up to CLIP's expected 224x224
+        self.resize = T.Resize((224, 224), interpolation=T.InterpolationMode.BICUBIC)
+
+    def forward(self, obs):
+        # URLB obs are stacked frames (e.g., 9 channels for 3 frames). 
+        # We only want the most recent RGB frame (the last 3 channels).
+        if obs.shape[1] > 3:
+            obs = obs[:, -3:, :, :]
+            
+        # URLB pixels are normalized to [-0.5, 0.5]. 
+        # We need to revert them to [0, 1] for CLIP's preprocessor.
+        obs = obs + 0.5 
+        
+        # Resize to 224x224
+        obs = self.resize(obs)
+
+        # We must use torch.no_grad() because we don't want to train CLIP
+        with torch.no_grad():
+            # Encode and return (Output shape: Batch x 512)
+            features = self.model.encode_image(obs)
+            
+        return features.float()
+
+
 class Actor(nn.Module):
     def __init__(self, obs_type, obs_dim, action_dim, feature_dim, hidden_dim):
         super().__init__()
@@ -138,7 +177,8 @@ class DDPGAgent:
                  init_critic,
                  use_tb,
                  use_wandb,
-                 meta_dim=0):
+                 meta_dim=0,
+                 encoder_type='cnn'):
         self.reward_free = reward_free
         self.obs_type = obs_type
         self.obs_shape = obs_shape
@@ -160,12 +200,20 @@ class DDPGAgent:
         # models
         if obs_type == 'pixels':
             self.aug = utils.RandomShiftsAug(pad=4)
-            self.encoder = Encoder(obs_shape).to(device)
+            if encoder_type == 'clip':
+                self.encoder = CLIPEncoder(device=device).to(device)
+                self.update_encoder = False  # CLIP weights are frozen — no optimizer needed
+            elif encoder_type == 'cnn':
+                self.encoder = Encoder(obs_shape).to(device)
+                self.update_encoder = True
+            else:
+                raise ValueError(f"Unknown encoder_type: {encoder_type}")
             self.obs_dim = self.encoder.repr_dim + meta_dim
         else:
             self.aug = nn.Identity()
             self.encoder = nn.Identity()
             self.obs_dim = obs_shape[0] + meta_dim
+            self.update_encoder = False
 
         self.actor = Actor(obs_type, self.obs_dim, self.action_dim,
                            feature_dim, hidden_dim).to(device)
@@ -178,11 +226,13 @@ class DDPGAgent:
 
         # optimizers
 
-        if obs_type == 'pixels':
-            self.encoder_opt = torch.optim.Adam(self.encoder.parameters(),
-                                                lr=lr)
+        if obs_type == 'pixels' and self.update_encoder:
+            # Only create encoder optimizer for trainable encoders (CNN)
+            # CLIP encoder has frozen weights so no optimizer needed
+            self.encoder_opt = torch.optim.Adam(self.encoder.parameters(), lr=lr)
         else:
             self.encoder_opt = None
+        
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=lr)
         self.critic_opt = torch.optim.Adam(self.critic.parameters(), lr=lr)
 
@@ -285,7 +335,8 @@ class DDPGAgent:
         return metrics
 
     def aug_and_encode(self, obs):
-        obs = self.aug(obs)
+        if self.update_encoder:
+            obs = self.aug(obs)
         return self.encoder(obs)
 
     def update(self, replay_iter, step):

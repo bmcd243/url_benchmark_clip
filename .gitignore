@@ -1,0 +1,74 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+
+# Virtual environments
+urlb_env/
+venv/
+.venv/
+env/
+
+# Hydra outputs
+outputs/
+exp_local/
+multirun/
+.hydra/
+
+# Experiment outputs
+runs/
+wandb/
+videos/
+*.mp4
+*.avi
+
+# t-SNE / plot outputs
+*.png
+*.jpg
+sanity_check_images/
+
+# Model checkpoints
+*.pth
+*.pt
+*.pkl
+checkpoints/
+snapshots/
+
+# Replay buffers
+buffer/
+replay_buffer/
+*.npz
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# VS Code
+.vscode/
+
+# MuJoCo / dm_control
+*.mjb
+mjkey.txt
+
+# CUDA
+*.cubin
+*.fatbin
+
+# Logs
+*.log
+logs/
+tb_logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Dotenv
+.env

@@ -53,7 +53,14 @@ def hard_update_params(net, target_net):
 
 
 def to_torch(xs, device):
-    return tuple(torch.as_tensor(x, device=device) for x in xs)
+    res = []
+    for x in xs:
+        tensor = torch.as_tensor(x, device=device)
+        # Force any Double tensors (float64) down to standard Float (float32)
+        if tensor.dtype == torch.float64:
+            tensor = tensor.float()
+        res.append(tensor)
+    return tuple(res)
 
 
 def weight_init(m):
