@@ -30,13 +30,14 @@ class DIAYN(nn.Module):
 
 class DIAYNAgent(DDPGAgent):
     def __init__(self, update_skill_every_step, skill_dim, diayn_scale,
-                 update_encoder, **kwargs):
+                 update_encoder, encoder_type='cnn', **kwargs):
         self.skill_dim = skill_dim
         self.update_skill_every_step = update_skill_every_step
         self.diayn_scale = diayn_scale
         self.update_encoder = update_encoder
         # increase obs shape to include skill dim
         kwargs["meta_dim"] = self.skill_dim
+        kwargs["encoder_type"] = encoder_type
 
         # create actor and critic
         super().__init__(**kwargs)

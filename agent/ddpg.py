@@ -5,6 +5,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import clip
+import torchvision.transforms as T
 
 import utils
 
@@ -49,6 +51,11 @@ class CLIPEncoder(nn.Module):
         # Transform to resize URLB's 84x84 images up to CLIP's expected 224x224
         self.resize = T.Resize((224, 224), interpolation=T.InterpolationMode.BICUBIC)
 
+        self.normalize = T.Normalize(
+        mean=[0.48145466, 0.4578275, 0.40821073],
+        std=[0.26862954, 0.26130258, 0.27577711]
+    )
+
     def forward(self, obs):
         # URLB obs are stacked frames (e.g., 9 channels for 3 frames). 
         # We only want the most recent RGB frame (the last 3 channels).
@@ -61,9 +68,12 @@ class CLIPEncoder(nn.Module):
         
         # Resize to 224x224
         obs = self.resize(obs)
+        
+        # Apply CLIP's expected ImageNet normalization
+        obs = self.normalize(obs)
 
         # We must use torch.no_grad() because we don't want to train CLIP
-        with torch.no_grad():
+        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
             # Encode and return (Output shape: Batch x 512)
             features = self.model.encode_image(obs)
             
@@ -203,9 +213,11 @@ class DDPGAgent:
             if encoder_type == 'clip':
                 self.encoder = CLIPEncoder(device=device).to(device)
                 self.update_encoder = False  # CLIP weights are frozen — no optimizer needed
+                print(f"[DDPGAgent] CLIP encoder loaded (ViT-B/32), repr_dim={self.encoder.repr_dim}")
             elif encoder_type == 'cnn':
                 self.encoder = Encoder(obs_shape).to(device)
                 self.update_encoder = True
+                print(f"[DDPGAgent] Using CNN Encoder, repr_dim={self.encoder.repr_dim}")
             else:
                 raise ValueError(f"Unknown encoder_type: {encoder_type}")
             self.obs_dim = self.encoder.repr_dim + meta_dim

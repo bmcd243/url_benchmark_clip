@@ -28,3 +28,4 @@ knn_clip: 0.0001
 num_init_steps: 4096 # set to ${num_train_frames} to disable finetune policy parameters
 lstsq_batch_size: 4096
 update_encoder: ${update_encoder}
+encoder_type: cnn

@@ -24,6 +24,9 @@
 
 <worldbody>
     <geom name="floor" type="plane" conaffinity="1" pos="0 0 0" size="250 50 .2" material="MatPlane" zaxis="0 0 1"/>
+
+    <light name="light_top" pos="0 0 6" dir="0 0 -1" diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" directional="true" castshadow="false"/>
+    <light name="light_front" pos="0 -4 3" dir="0 0.5 -1" diffuse="0.6 0.6 0.6" specular="0.1 0.1 0.1" directional="true" castshadow="false"/>
     
     <body name="torso" pos="0 0 1.3" childclass="walker">
       

@@ -39,18 +39,17 @@ class VideoRecorder:
                 frame = env.render()
             self.frames.append(frame)
 
-    def log_to_wandb(self):
+    def log_to_wandb(self, wandb_key='eval/video'):
         frames = np.transpose(np.array(self.frames), (0, 3, 1, 2))
         fps, skip = 20, 2
         wandb.log({
-            'eval/video':
-            wandb.Video(frames[::skip, :, :, :], fps=fps, format="gif")
+            wandb_key: wandb.Video(frames[::skip, :, :, :], fps=fps, format="gif")
         })
 
-    def save(self, file_name):
+    def save(self, file_name, wandb_key='eval/video'):
         if self.enabled:
             if self.use_wandb:
-                self.log_to_wandb()
+                self.log_to_wandb(wandb_key)
             path = self.save_dir / file_name
             imageio.mimsave(str(path), self.frames, fps=self.fps)
 

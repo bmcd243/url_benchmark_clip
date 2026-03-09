@@ -1,0 +1,28 @@
+# --- Core Deep Learning ---
+torch>=1.9.0
+torchvision
+numpy
+
+# --- DeepMind Environments & Physics ---
+dm_control
+mujoco
+
+# --- Configuration Management (URLB Default) ---
+hydra-core
+
+# --- Vision-Language Foundation Models ---
+# Note: OpenAI's CLIP must be installed directly from their GitHub repository
+git+https://github.com/openai/CLIP.git
+open_clip_torch
+
+# --- Data Processing, Metrics, & Visualization ---
+Pillow
+matplotlib
+scikit-learn
+imageio
+wandb[media]
+
+wandb
+termcolor
+tensorboard
+opencv-python

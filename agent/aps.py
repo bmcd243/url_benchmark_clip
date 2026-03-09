@@ -86,7 +86,7 @@ class APS(nn.Module):
 
 class APSAgent(DDPGAgent):
     def __init__(self, update_task_every_step, sf_dim, knn_rms, knn_k, knn_avg,
-                 knn_clip, num_init_steps, lstsq_batch_size, update_encoder,
+                 knn_clip, num_init_steps, lstsq_batch_size, update_encoder, encoder_type='cnn',
                  **kwargs):
         self.sf_dim = sf_dim
         self.update_task_every_step = update_task_every_step
@@ -96,6 +96,7 @@ class APSAgent(DDPGAgent):
 
         # increase obs shape to include task dim
         kwargs["meta_dim"] = self.sf_dim
+        kwargs["encoder_type"] = encoder_type
 
         # create actor and critic
         super().__init__(**kwargs)

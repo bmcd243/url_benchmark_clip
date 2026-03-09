@@ -45,11 +45,13 @@ class Workspace:
 
         # create logger
         if cfg.use_wandb:
+            encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
             exp_name = '_'.join([
                 cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type,
-                str(cfg.seed)
+                encoder_type, str(cfg.seed)
             ])
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
+            tags = [cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type]
+            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, tags=tags)
 
         self.logger = Logger(self.work_dir,
                              use_tb=cfg.use_tb,
@@ -123,10 +125,11 @@ class Workspace:
     def eval(self):
         step, episode, total_reward = 0, 0, 0
         eval_until_episode = utils.Until(self.cfg.num_eval_episodes)
-        meta = self.agent.init_meta()
         while eval_until_episode(episode):
+            meta = self.agent.init_meta()
+            skill_idx = np.argmax(meta['skill']) if 'skill' in meta else episode
             time_step = self.eval_env.reset()
-            self.video_recorder.init(self.eval_env, enabled=(episode == 0))
+            self.video_recorder.init(self.eval_env, enabled=True)
             while not time_step.last():
                 with torch.no_grad(), utils.eval_mode(self.agent):
                     action = self.agent.act(time_step.observation,
@@ -139,7 +142,10 @@ class Workspace:
                 step += 1
 
             episode += 1
-            self.video_recorder.save(f'{self.global_frame}.mp4')
+            self.video_recorder.save(
+                f'{self.global_frame}_skill{skill_idx}.mp4',
+                wandb_key=f'eval/video_skill{skill_idx}'
+            )
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
             log('episode_reward', total_reward / episode)
