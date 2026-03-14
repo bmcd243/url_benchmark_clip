@@ -50,8 +50,9 @@ class VideoRecorder:
         if self.enabled:
             if self.use_wandb:
                 self.log_to_wandb(wandb_key)
-            path = self.save_dir / file_name
-            imageio.mimsave(str(path), self.frames, fps=self.fps)
+            else:
+                path = self.save_dir / file_name
+                imageio.mimsave(str(path), self.frames, fps=self.fps)
 
 
 class TrainVideoRecorder:
@@ -73,16 +74,19 @@ class TrainVideoRecorder:
         self.camera_id = camera_id
         self.use_wandb = use_wandb
 
-    def init(self, obs, enabled=True):
+    def init(self, env, enabled=True):
         self.frames = []
         self.enabled = self.save_dir is not None and enabled
-        self.record(obs)
+        self.record(env)
 
-    def record(self, obs):
+    def record(self, env):
         if self.enabled:
-            frame = cv2.resize(obs[-3:].transpose(1, 2, 0),
-                               dsize=(self.render_size, self.render_size),
-                               interpolation=cv2.INTER_CUBIC)
+            if hasattr(env, 'physics'):
+                frame = env.physics.render(height=self.render_size,
+                                           width=self.render_size,
+                                           camera_id=self.camera_id)
+            else:
+                frame = env.render()
             self.frames.append(frame)
 
     def log_to_wandb(self):

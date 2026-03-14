@@ -35,6 +35,7 @@ class DIAYNAgent(DDPGAgent):
         self.update_skill_every_step = update_skill_every_step
         self.diayn_scale = diayn_scale
         self.update_encoder = update_encoder
+        self._current_skill = 0
         # increase obs shape to include skill dim
         kwargs["meta_dim"] = self.skill_dim
         kwargs["encoder_type"] = encoder_type
@@ -58,7 +59,8 @@ class DIAYNAgent(DDPGAgent):
 
     def init_meta(self):
         skill = np.zeros(self.skill_dim, dtype=np.float32)
-        skill[np.random.choice(self.skill_dim)] = 1.0
+        skill[self._current_skill] = 1.0
+        self._current_skill = (self._current_skill + 1) % self.skill_dim
         meta = OrderedDict()
         meta['skill'] = skill
         return meta

@@ -3,7 +3,6 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.nn.utils import spectral_norm
 from collections import OrderedDict
 from dm_env import specs
 
@@ -11,28 +10,48 @@ import utils
 from agent.ddpg import DDPGAgent
 
 
+class SpectralNormLinear(nn.Module):
+    """Linear layer with manual spectral normalization. Avoids PyTorch's
+    hook/parametrization machinery which has device-placement bugs in 2.x."""
+    def __init__(self, in_features, out_features, n_power_iterations=1, eps=1e-12):
+        super().__init__()
+        self.eps = eps
+        self.n_power_iterations = n_power_iterations
+        self.weight = nn.Parameter(torch.empty(out_features, in_features))
+        self.bias = nn.Parameter(torch.zeros(out_features))
+        nn.init.xavier_uniform_(self.weight)
+        self.register_buffer('u', F.normalize(torch.randn(out_features), dim=0, eps=eps))
+        self.register_buffer('v', F.normalize(torch.randn(in_features), dim=0, eps=eps))
+
+    def forward(self, x):
+        weight = self.weight
+        if self.training:
+            with torch.no_grad():
+                u = self.u.clone()
+                v = self.v.clone()
+                for _ in range(self.n_power_iterations):
+                    v = F.normalize(torch.mv(weight.t(), u), dim=0, eps=self.eps)
+                    u = F.normalize(torch.mv(weight, v), dim=0, eps=self.eps)
+                self.u.copy_(u)
+                self.v.copy_(v)
+        else:
+            u = self.u
+            v = self.v
+        sigma = torch.dot(u, torch.mv(weight, v)).clamp(min=self.eps)
+        return F.linear(x, weight / sigma, self.bias)
+
+
 class TrajEncoder(nn.Module):
-    """
-    Maps observations to a latent embedding space.
-    Spectral normalisation on all layers enforces the Lipschitz constraint
-    that is central to LSD's metric structure.
-    """
     def __init__(self, obs_dim, hidden_dim, skill_dim):
         super().__init__()
-
-        # Spectral norm on every linear layer - this is the Lipschitz constraint.
-        # A common mistake is to only normalise the output layer - don't do that.
-        self.net = nn.Sequential(
-            spectral_norm(nn.Linear(obs_dim, hidden_dim)),
-            nn.ReLU(inplace=True),
-            spectral_norm(nn.Linear(hidden_dim, hidden_dim)),
-            nn.ReLU(inplace=True),
-            spectral_norm(nn.Linear(hidden_dim, skill_dim)),
-        )
-        self.apply(utils.weight_init)
+        self.fc1 = SpectralNormLinear(obs_dim, hidden_dim)
+        self.fc2 = SpectralNormLinear(hidden_dim, hidden_dim)
+        self.fc3 = SpectralNormLinear(hidden_dim, skill_dim)
 
     def forward(self, obs):
-        return self.net(obs)
+        x = F.relu(self.fc1(obs))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
 
 
 class LSDAgent(DDPGAgent):
@@ -41,6 +60,7 @@ class LSDAgent(DDPGAgent):
         skill_dim,
         lsd_scale,
         update_encoder,
+        encoder_type='clip',
         **kwargs,
     ):
         self.skill_dim = skill_dim
@@ -49,6 +69,7 @@ class LSDAgent(DDPGAgent):
 
         # Inject skill dim into obs so actor/critic see [enc(obs) || skill]
         kwargs["meta_dim"] = self.skill_dim
+        kwargs["encoder_type"] = encoder_type
 
         super().__init__(**kwargs)
 
@@ -76,11 +97,10 @@ class LSDAgent(DDPGAgent):
         return (specs.Array((self.skill_dim,), np.float32, 'skill'),)
 
     def init_meta(self):
-        """Sample a skill uniformly from the unit sphere."""
         if self.solved_meta is not None:
             return self.solved_meta
         skill = np.random.randn(self.skill_dim).astype(np.float32)
-        skill /= np.linalg.norm(skill) + 1e-12
+        # Original LSD samples raw Gaussian skills, no normalization
         meta = OrderedDict()
         meta['skill'] = skill
         return meta
@@ -141,6 +161,10 @@ class LSDAgent(DDPGAgent):
             self.encoder_opt.zero_grad(set_to_none=True)
 
         loss.backward()
+
+        # need to add this manual clipping as using ddpg as opposed to sac which automatically bounds the reward via entropy regularisation
+        torch.nn.utils.clip_grad_norm_(self.traj_encoder.parameters(), max_norm=1.0)
+        
 
         self.traj_encoder_opt.step()
         if self.encoder_opt is not None:

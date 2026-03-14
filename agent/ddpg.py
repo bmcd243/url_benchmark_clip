@@ -213,10 +213,12 @@ class DDPGAgent:
             if encoder_type == 'clip':
                 self.encoder = CLIPEncoder(device=device).to(device)
                 self.update_encoder = False  # CLIP weights are frozen — no optimizer needed
+                self.obs_precached = True
                 print(f"[DDPGAgent] CLIP encoder loaded (ViT-B/32), repr_dim={self.encoder.repr_dim}")
             elif encoder_type == 'cnn':
                 self.encoder = Encoder(obs_shape).to(device)
                 self.update_encoder = True
+                self.obs_precached = False  # <-- add this
                 print(f"[DDPGAgent] Using CNN Encoder, repr_dim={self.encoder.repr_dim}")
             else:
                 raise ValueError(f"Unknown encoder_type: {encoder_type}")
@@ -226,6 +228,7 @@ class DDPGAgent:
             self.encoder = nn.Identity()
             self.obs_dim = obs_shape[0] + meta_dim
             self.update_encoder = False
+            self.obs_precached = False
 
         self.actor = Actor(obs_type, self.obs_dim, self.action_dim,
                            feature_dim, hidden_dim).to(device)
@@ -273,15 +276,14 @@ class DDPGAgent:
     def update_meta(self, meta, global_step, time_step, finetune=False):
         return meta
 
-    def act(self, obs, meta, step, eval_mode):
+    def act(self, obs, meta, step, eval_mode, obs_already_encoded=False):
         obs = torch.as_tensor(obs, device=self.device).unsqueeze(0)
-        h = self.encoder(obs)
+        h = obs if obs_already_encoded else self.encoder(obs)
         inputs = [h]
         for value in meta.values():
             value = torch.as_tensor(value, device=self.device).unsqueeze(0)
             inputs.append(value)
         inpt = torch.cat(inputs, dim=-1)
-        #assert obs.shape[-1] == self.obs_shape[-1]
         stddev = utils.schedule(self.stddev_schedule, step)
         dist = self.actor(inpt, stddev)
         if eval_mode:
@@ -346,7 +348,10 @@ class DDPGAgent:
 
         return metrics
 
+    # supports with and without precached embeddings
     def aug_and_encode(self, obs):
+        if self.obs_precached:
+            return obs  # already a 512-d embedding, skip encoder entirely
         if self.update_encoder:
             obs = self.aug(obs)
         return self.encoder(obs)

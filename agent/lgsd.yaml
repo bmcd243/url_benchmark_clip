@@ -1,10 +1,10 @@
-# agent/lsd.yaml
+# agent/lgsd.yaml
 # @package agent
-_target_: agent.lsd.LSDAgent
-name: lsd
+_target_: agent.lgsd.LGSDAgent
+name: lgsd
 reward_free: ${reward_free}
 obs_type: ???
-obs_shape: ???
+obs_shape: 512
 action_shape: ???
 device: ${device}
 lr: 1e-4
@@ -21,8 +21,14 @@ nstep: 3
 batch_size: 1024
 init_critic: true
 update_encoder: ${update_encoder}
-encoder_type: clip
 
-# LSD-specific
-skill_dim: 8      # continuous, on unit sphere - start smaller than DIAYN's 16
-lsd_scale: 1.0
+# LGSD-specific
+skill_dim: 8
+lgsd_scale: 1.0
+
+# Lagrange multiplier for Lipschitz constraint
+# LGSD uses lambda_init=300 but that is for Isaac Gym scale
+# Start lower for DMControl reward magnitudes
+lagrange_init: 10.0
+lagrange_lr: 0.01
+lipschitz_epsilon: 0.01
