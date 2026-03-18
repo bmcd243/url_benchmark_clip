@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import clip
+import open_clip
 import torchvision.transforms as T
 
 import utils
@@ -34,50 +34,78 @@ class Encoder(nn.Module):
 
 
 class CLIPEncoder(nn.Module):
-    """A drop-in replacement for the URLB CNN Encoder that uses frozen CLIP."""
-    def __init__(self, device="cuda" if torch.cuda.is_available() else "cpu"):
+    """Frozen OpenCLIP encoder with optional stacked-frame concatenation."""
+    def __init__(self,
+                 obs_shape,
+                 device="cuda" if torch.cuda.is_available() else "cpu",
+                 clip_model_name="ViT-g-14",
+                 clip_pretrained="laion2b_s34b_b88k",
+                 concat_stacked_frames=True):
         super().__init__()
         self.device = device
-        # Load CLIP once
-        self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
+        self.concat_stacked_frames = concat_stacked_frames
+
+        assert len(obs_shape) == 3, "Expected obs_shape=(C,H,W)"
+        in_channels = obs_shape[0]
+        assert in_channels % 3 == 0, f"Pixel channels must be divisible by 3, got {in_channels}"
+        self.num_frames = in_channels // 3
+
+        # Load OpenCLIP once
+        self.model, _, _ = open_clip.create_model_and_transforms(
+            clip_model_name,
+            pretrained=clip_pretrained,
+            device=self.device)
+        self.model.eval()
         
         # Freeze all CLIP parameters
         for param in self.model.parameters():
             param.requires_grad = False
             
-        # URLB expects a specific property 'repr_dim' to build the Actor/Critic
-        self.repr_dim = 512 # ViT-B/32 embedding size
+        self.base_dim = int(self.model.visual.output_dim)
+        self.repr_dim = (self.base_dim * self.num_frames
+                 if self.concat_stacked_frames else self.base_dim)
 
         # Transform to resize URLB's 84x84 images up to CLIP's expected 224x224
         self.resize = T.Resize((224, 224), interpolation=T.InterpolationMode.BICUBIC)
 
-        self.normalize = T.Normalize(
-        mean=[0.48145466, 0.4578275, 0.40821073],
-        std=[0.26862954, 0.26130258, 0.27577711]
-    )
+        mean = getattr(self.model.visual, 'image_mean',
+                       (0.48145466, 0.4578275, 0.40821073))
+        std = getattr(self.model.visual, 'image_std',
+                      (0.26862954, 0.26130258, 0.27577711))
+        self.normalize = T.Normalize(mean=mean, std=std)
+        self.use_amp = str(self.device).startswith('cuda')
 
     def forward(self, obs):
-        # URLB obs are stacked frames (e.g., 9 channels for 3 frames). 
-        # We only want the most recent RGB frame (the last 3 channels).
-        if obs.shape[1] > 3:
-            obs = obs[:, -3:, :, :]
-            
-        # URLB pixels are normalized to [-0.5, 0.5]. 
-        # We need to revert them to [0, 1] for CLIP's preprocessor.
-        obs = obs + 0.5 
-        
-        # Resize to 224x224
-        obs = self.resize(obs)
-        
-        # Apply CLIP's expected ImageNet normalization
-        obs = self.normalize(obs)
+        # obs is stacked RGB: (B, 3*T, H, W)
+        B, C, H, W = obs.shape
+        assert C % 3 == 0, f"Expected channels divisible by 3, got {C}"
+        num_frames = C // 3
 
-        # We must use torch.no_grad() because we don't want to train CLIP
-        with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.float16):
-            # Encode and return (Output shape: Batch x 512)
-            features = self.model.encode_image(obs)
-            
-        return features.float()
+        # URLB stores pixel observations in [0,255] uint8.
+        obs = obs / 255.0
+
+        # (B, T, 3, H, W) -> (B*T, 3, H, W)
+        frames = obs.reshape(B, num_frames, 3, H, W).reshape(B * num_frames,
+                                                              3, H, W)
+        frames = self.resize(frames)
+        frames = self.normalize(frames)
+
+        with torch.no_grad():
+            if self.use_amp:
+                with torch.autocast(device_type='cuda', dtype=torch.float16):
+                    emb = self.model.encode_image(frames)
+            else:
+                emb = self.model.encode_image(frames)
+
+        emb = emb.float()
+        emb = F.normalize(emb, dim=-1)
+        emb = emb.reshape(B, num_frames, self.base_dim)
+
+        if self.concat_stacked_frames:
+            emb = emb.reshape(B, num_frames * self.base_dim)
+        else:
+            emb = emb.mean(dim=1)
+        return emb
 
 
 class Actor(nn.Module):
@@ -188,7 +216,10 @@ class DDPGAgent:
                  use_tb,
                  use_wandb,
                  meta_dim=0,
-                 encoder_type='cnn'):
+                 encoder_type='cnn',
+                 clip_model_name='ViT-g-14',
+                 clip_pretrained='laion2b_s34b_b88k',
+                 clip_concat_stacked_frames=True):
         self.reward_free = reward_free
         self.obs_type = obs_type
         self.obs_shape = obs_shape
@@ -211,14 +242,21 @@ class DDPGAgent:
         if obs_type == 'pixels':
             self.aug = utils.RandomShiftsAug(pad=4)
             if encoder_type == 'clip':
-                self.encoder = CLIPEncoder(device=device).to(device)
+                self.encoder = CLIPEncoder(
+                    obs_shape=obs_shape,
+                    device=device,
+                    clip_model_name=clip_model_name,
+                    clip_pretrained=clip_pretrained,
+                    concat_stacked_frames=clip_concat_stacked_frames).to(device)
                 self.update_encoder = False  # CLIP weights are frozen — no optimizer needed
                 self.obs_precached = True
-                print(f"[DDPGAgent] CLIP encoder loaded (ViT-B/32), repr_dim={self.encoder.repr_dim}")
+                print(
+                    f"[DDPGAgent] OpenCLIP encoder loaded ({clip_model_name}, {clip_pretrained}), "
+                    f"frames={self.encoder.num_frames}, repr_dim={self.encoder.repr_dim}")
             elif encoder_type == 'cnn':
                 self.encoder = Encoder(obs_shape).to(device)
                 self.update_encoder = True
-                self.obs_precached = False  # <-- add this
+                self.obs_precached = False
                 print(f"[DDPGAgent] Using CNN Encoder, repr_dim={self.encoder.repr_dim}")
             else:
                 raise ValueError(f"Unknown encoder_type: {encoder_type}")
@@ -261,8 +299,9 @@ class DDPGAgent:
         self.critic.train(training)
 
     def init_from(self, other):
-        # copy parameters over
-        utils.hard_update_params(other.encoder, self.encoder)
+        # Only copy encoder if it was trained (not frozen CLIP)
+        if self.update_encoder:
+            utils.hard_update_params(other.encoder, self.encoder)
         utils.hard_update_params(other.actor, self.actor)
         if self.init_critic:
             utils.hard_update_params(other.critic.trunk, self.critic.trunk)
@@ -351,7 +390,7 @@ class DDPGAgent:
     # supports with and without precached embeddings
     def aug_and_encode(self, obs):
         if self.obs_precached:
-            return obs  # already a 512-d embedding, skip encoder entirely
+            return obs  # already precached embedding, skip encoder entirely
         if self.update_encoder:
             obs = self.aug(obs)
         return self.encoder(obs)

@@ -166,20 +166,18 @@ class LGSDAgent(DDPGAgent):
         phi_s_next = self.traj_encoder(e_next)
         delta_phi  = phi_s_next - phi_s
 
-        # LSD/LGSD objective: maximise alignment with skill direction
+        # LSD/LGSD objective: minimise negative alignment 
         lsd_loss = -(delta_phi * skill).sum(dim=1).mean()
 
-        # Lipschitz constraint violation
-        # LGSD Equation (final): constraint on adjacent pairs S_adj
-        # violation > 0 means ||phi(e') - phi(e)|| > d_CLIP(o, o')
-        phi_dist  = delta_phi.norm(dim=1)           # (B,)
-        d_clip    = self._clip_cosine_distance(e, e_next)  # (B,)
-        violation = phi_dist - d_clip               # (B,)
+        # Lipschitz constraint violation (Using Squared L2 to match LGSD Appendix E)
+        phi_dist_sq = delta_phi.pow(2).sum(dim=1)           # (B,)
+        d_clip      = self._clip_cosine_distance(e, e_next) # (B,)
+        violation   = phi_dist_sq - d_clip                  # (B,)
 
-        # Lagrange penalty: lambda * min(epsilon, violation)
-        # epsilon prevents over-penalising large violations (LGSD Section 4.1)
-        clamped_violation = torch.min(
-            torch.full_like(violation, self.lipschitz_eps),
+        # Lagrange penalty (Minimisation framework)
+        # Heavy penalty for violation > 0. Capped bonus for violation < 0.
+        clamped_violation = torch.max(
+            torch.full_like(violation, -self.lipschitz_eps),
             violation
         )
         lipschitz_loss = self.lagrange * clamped_violation.mean()
@@ -191,7 +189,6 @@ class LGSDAgent(DDPGAgent):
         self.traj_encoder_opt.step()
 
         # Dual gradient descent: update lambda
-        # lambda increases when constraint is violated, decreases otherwise
         with torch.no_grad():
             self.lagrange += self.lagrange_lr * violation.mean().item()
             self.lagrange  = max(0.0, self.lagrange)  # lambda >= 0
@@ -201,7 +198,7 @@ class LGSDAgent(DDPGAgent):
             metrics['lgsd_lipschitz_loss']   = lipschitz_loss.item()
             metrics['lgsd_violation_mean']   = violation.mean().item()
             metrics['lgsd_violation_frac']   = (violation > 0).float().mean().item()
-            metrics['lgsd_phi_dist']         = phi_dist.mean().item()
+            metrics['lgsd_phi_dist_sq']      = phi_dist_sq.mean().item()
             metrics['lgsd_d_clip']           = d_clip.mean().item()
             metrics['lgsd_lagrange']         = self.lagrange
 
@@ -287,8 +284,10 @@ class LGSDAgent(DDPGAgent):
             next(replay_iter), self.device
         )
 
-        e      = F.normalize(obs.float(),      dim=-1)
-        e_next = F.normalize(next_obs.float(), dim=-1)
+        obs_enc      = self.aug_and_encode(obs)
+        next_obs_enc = self.aug_and_encode(next_obs)
+        e      = F.normalize(obs_enc.float(),      dim=-1)
+        e_next = F.normalize(next_obs_enc.float(), dim=-1)
 
         phi_s      = self.traj_encoder(e)
         phi_s_next = self.traj_encoder(e_next)

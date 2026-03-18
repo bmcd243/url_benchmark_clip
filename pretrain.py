@@ -61,10 +61,13 @@ class Workspace:
                              use_wandb=cfg.use_wandb)
         # create envs
         task = PRIMAL_TASKS[self.cfg.domain]
+        encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
+        pixel_size = 224 if (cfg.obs_type == 'pixels' and encoder_type == 'clip') else 84
+
         self.train_env = dmc.make(task, cfg.obs_type, cfg.frame_stack,
-                                  cfg.action_repeat, cfg.seed)
+                                cfg.action_repeat, cfg.seed, pixel_size=pixel_size)
         self.eval_env = dmc.make(task, cfg.obs_type, cfg.frame_stack,
-                                 cfg.action_repeat, cfg.seed)
+                                cfg.action_repeat, cfg.seed, pixel_size=pixel_size)
 
         # create agent
         self.agent = make_agent(cfg.obs_type,
@@ -105,13 +108,14 @@ class Workspace:
 
         # create video recorders
         self.video_recorder = VideoRecorder(
-            self.work_dir if cfg.save_video else None,
-            camera_id=0 if 'quadruped' not in self.cfg.domain else 2,
-            use_wandb=self.cfg.use_wandb)
+        self.work_dir if cfg.save_video else None,
+        camera_id=0 if 'quadruped' not in cfg.domain else 2,
+        use_wandb=self.cfg.use_wandb)
+
         self.train_video_recorder = TrainVideoRecorder(
-            self.work_dir if cfg.save_train_video else None,
-            camera_id=0 if 'quadruped' not in self.cfg.domain else 2,
-            use_wandb=self.cfg.use_wandb)
+        self.work_dir if cfg.save_train_video else None,
+        camera_id=0 if 'quadruped' not in cfg.domain else 2,
+        use_wandb=self.cfg.use_wandb)
 
         self.timer = utils.Timer()
         self._global_step = 0
