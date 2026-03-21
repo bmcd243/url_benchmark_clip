@@ -26,11 +26,11 @@ init_critic: true
 update_encoder: false  # CLIP weights are frozen throughout
 encoder_type: clip
 
-# clip_model_name: ViT-B-32
-# clip_pretrained: openai
+clip_model_name: ViT-B-32
+clip_pretrained: openai
 
-clip_model_name: ViT-g-14
-clip_pretrained: laion2b_s34b_b88k
+# clip_model_name: ViT-g-14
+# clip_pretrained: laion2b_s34b_b88k
 
 clip_concat_stacked_frames: true
 

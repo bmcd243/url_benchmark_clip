@@ -26,9 +26,11 @@ init_critic: true
 update_encoder: false  # CLIP weights are frozen throughout
 encoder_type: clip
 
+clip_model_name: ViT-B-32
+clip_pretrained: openai
+
 # LGSD-specific
 skill_dim: 8
-lgsd_scale: 1.0
 
 # Lagrange multiplier for Lipschitz constraint.
 # Enforces ||phi(e') - phi(e)|| <= d_CLIP(o, o') on adjacent state pairs,
@@ -36,7 +38,7 @@ lgsd_scale: 1.0
 # Following LGSD (Rho et al., 2025) Algorithm 1, lines 16-17.
 # lambda increases when constraint is violated, decreases otherwise,
 # clamped at zero to maintain lambda >= 0.
-lagrange_init: 10.0
-lagrange_lr: 0.01
-lipschitz_epsilon: 0.01  # caps penalty to prevent catastrophic penalisation
-                         # of large violations during early training
+lagrange_init: 100.0    # closer to paper's 300, strong early constraint
+lagrange_lr: 0.001      # slower decay — noisier batch estimates need stability
+lgsd_scale: 10.0        # amplify reward signal to compete with entropy
+lipschitz_epsilon: 0.1  # looser cap — DDPG updates are smaller than PPO

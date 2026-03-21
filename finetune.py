@@ -258,7 +258,18 @@ class Workspace:
             with snapshot.open('rb') as f:
                 # payload = torch.load(f)
                 payload = torch.load(f, weights_only=False, map_location=self.device)
+                if payload.get('encoder_type') == 'clip':
+                    pass
             return payload
+
+    def save_snapshot(self):
+        snapshot_dir = self.work_dir / 'snapshots'
+        snapshot_dir.mkdir(exist_ok=True, parents=True)
+        snapshot = snapshot_dir / f'snapshot_{self.global_frame}.pt'
+        keys_to_save = ['agent', '_global_step', '_global_episode']
+        payload = {k: self.__dict__[k] for k in keys_to_save}
+        with snapshot.open('wb') as f:
+            torch.save(payload, f)
 
         # try to load current seed
         payload = try_load(self.cfg.seed)

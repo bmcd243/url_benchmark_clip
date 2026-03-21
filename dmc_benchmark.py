@@ -4,7 +4,8 @@ DOMAINS = [
     'jaco',
     'texturedwalker',
     'texturedcheetah',
-    'texturedhopper'
+    'texturedhopper',
+    'texturedquadruped'
 ]
 
 WALKER_TASKS = [
@@ -35,5 +36,7 @@ PRIMAL_TASKS = {
     'jaco': 'jaco_reach_top_left',
     'quadruped': 'quadruped_walk',
     'texturedwalker': 'texturedwalker_stand',
-    'texturedcheetah': 'texturedcheetah_run'
+    'texturedcheetah': 'texturedcheetah_run',
+    'texturedquadruped': 'texturedquadruped_walk',
+    'texturedquadruped': 'texturedquadruped_stand'
 }

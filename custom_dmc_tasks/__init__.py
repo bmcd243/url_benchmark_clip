@@ -1,4 +1,4 @@
-from custom_dmc_tasks import cheetah, walker, hopper, quadruped, jaco, texturedwalker, texturedcheetah
+from custom_dmc_tasks import cheetah, walker, hopper, quadruped, jaco, texturedwalker, texturedquadruped
 
 
 def make(domain, task,
@@ -38,6 +38,11 @@ def make(domain, task,
                            visualize_reward=visualize_reward)
     elif domain == 'texturedhopper':
         return texturedhopper.make(task,
+                           task_kwargs=task_kwargs,
+                           environment_kwargs=environment_kwargs,
+                           visualize_reward=visualize_reward)
+    elif domain == 'texturedquadruped':
+        return texturedquadruped.make(task,
                            task_kwargs=task_kwargs,
                            environment_kwargs=environment_kwargs,
                            visualize_reward=visualize_reward)

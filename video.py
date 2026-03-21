@@ -12,11 +12,10 @@ class VideoRecorder:
                 #  camera_id=0,
                  camera_id="fixed_side",
                  use_wandb=False):
-        if root_dir is not None:
+        self.save_dir = None
+        if root_dir is not None and not use_wandb:
             self.save_dir = root_dir / 'eval_video'
             self.save_dir.mkdir(exist_ok=True)
-        else:
-            self.save_dir = None
 
         self.render_size = render_size
         self.fps = fps
@@ -26,7 +25,7 @@ class VideoRecorder:
 
     def init(self, env, enabled=True):
         self.frames = []
-        self.enabled = self.save_dir is not None and enabled
+        self.enabled = enabled and (self.use_wandb or self.save_dir is not None)
         self.record(env)
 
     def record(self, env):
@@ -62,11 +61,10 @@ class TrainVideoRecorder:
                  fps=20,
                  camera_id=0,
                  use_wandb=False):
-        if root_dir is not None:
+        self.save_dir = None
+        if root_dir is not None and not use_wandb:
             self.save_dir = root_dir / 'train_video'
             self.save_dir.mkdir(exist_ok=True)
-        else:
-            self.save_dir = None
 
         self.render_size = render_size
         self.fps = fps
@@ -76,7 +74,7 @@ class TrainVideoRecorder:
 
     def init(self, env, enabled=True):
         self.frames = []
-        self.enabled = self.save_dir is not None and enabled
+        self.enabled = enabled and (self.use_wandb or self.save_dir is not None)
         self.record(env)
 
     def record(self, env):
@@ -101,5 +99,6 @@ class TrainVideoRecorder:
         if self.enabled:
             if self.use_wandb:
                 self.log_to_wandb()
-            path = self.save_dir / file_name
-            imageio.mimsave(str(path), self.frames, fps=self.fps)
+            else:
+                path = self.save_dir / file_name
+                imageio.mimsave(str(path), self.frames, fps=self.fps)

@@ -373,7 +373,8 @@ class DDPGAgent:
         Q1, Q2 = self.critic(obs, action)
         Q = torch.min(Q1, Q2)
 
-        actor_loss = -Q.mean()
+        # actor_loss = -Q.mean()
+        actor_loss = -Q.mean() - 0.01 * dist.entropy().sum(dim=-1).mean()
 
         # optimize actor
         self.actor_opt.zero_grad(set_to_none=True)

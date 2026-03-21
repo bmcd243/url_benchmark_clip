@@ -170,13 +170,14 @@ class LGSDAgent(DDPGAgent):
         lsd_loss = -(delta_phi * skill).sum(dim=1).mean()
 
         # Lipschitz constraint violation (Using Squared L2 to match LGSD Appendix E)
-        phi_dist_sq = delta_phi.pow(2).sum(dim=1)           # (B,)
+        # phi_dist_sq = delta_phi.pow(2).sum(dim=1)           # (B,)
+        phi_dist  = delta_phi.norm(dim=1)
         d_clip      = self._clip_cosine_distance(e, e_next) # (B,)
-        violation   = phi_dist_sq - d_clip                  # (B,)
+        violation   = phi_dist - d_clip                  # (B,)
 
         # Lagrange penalty (Minimisation framework)
         # Heavy penalty for violation > 0. Capped bonus for violation < 0.
-        clamped_violation = torch.max(
+        clamped_violation = torch.min(
             torch.full_like(violation, -self.lipschitz_eps),
             violation
         )
@@ -198,7 +199,7 @@ class LGSDAgent(DDPGAgent):
             metrics['lgsd_lipschitz_loss']   = lipschitz_loss.item()
             metrics['lgsd_violation_mean']   = violation.mean().item()
             metrics['lgsd_violation_frac']   = (violation > 0).float().mean().item()
-            metrics['lgsd_phi_dist_sq']      = phi_dist_sq.mean().item()
+            metrics['lgsd_phi_dist']      = phi_dist.mean().item()
             metrics['lgsd_d_clip']           = d_clip.mean().item()
             metrics['lgsd_lagrange']         = self.lagrange
 

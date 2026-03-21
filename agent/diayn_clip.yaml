@@ -25,6 +25,9 @@ batch_size: 256
 init_critic: true
 update_encoder: false  # CLIP weights are frozen throughout
 encoder_type: clip
+
+clip_model_name: ViT-B-32
+clip_pretrained: openai
  
 # DIAYN-specific
 skill_dim: 16

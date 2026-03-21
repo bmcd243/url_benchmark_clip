@@ -251,6 +251,15 @@ class Workspace:
         snapshot = snapshot_dir / f'snapshot_{self.global_frame}.pt'
         keys_to_save = ['agent', '_global_step', '_global_episode']
         payload = {k: self.__dict__[k] for k in keys_to_save}
+
+        # Remove CLIP encoder weights before saving — they are frozen
+        # and can be reloaded from the pretrained model at finetuning time
+        if hasattr(payload['agent'], 'encoder') and \
+        hasattr(payload['agent'].encoder, 'model'):
+            encoder_state = payload['agent'].encoder.state_dict()
+            del payload['agent'].encoder
+            payload['encoder_type'] = 'clip'  # flag for reload
+        
         with snapshot.open('wb') as f:
             torch.save(payload, f)
 
