@@ -48,6 +48,10 @@ class Workspace:
             ])
             tags = [cfg.agent.name, cfg.task, cfg.obs_type, encoder_type, 'finetune']
             wandb.init(project='urlb', group=f'{cfg.agent.name}-finetune', name=exp_name, tags=tags)
+            if cfg.get('pretrain_run_id', None):
+                wandb.config.update({
+                    'pretrain_run_id': cfg.pretrain_run_id
+                })
 
         # create logger
         self.logger = Logger(self.work_dir,
@@ -180,87 +184,180 @@ class Workspace:
             log('step', self.global_step)
 
     def train(self):
-        train_until_step = utils.Until(self.cfg.num_train_frames, self.cfg.action_repeat)
-        seed_until_step = utils.Until(self.cfg.num_seed_frames, self.cfg.action_repeat)
-        eval_every_step = utils.Every(self.cfg.eval_every_frames, self.cfg.action_repeat)
+    train_until_step = utils.Until(self.cfg.num_train_frames, self.cfg.action_repeat)
+    eval_every_step  = utils.Every(self.cfg.eval_every_frames, self.cfg.action_repeat)
 
-        episode_step, episode_reward = 0, 0
+    # ------------------------------------------------------------------ #
+    # PROBE PHASE (4096 steps)
+    # Collect transitions with extrinsic reward using the pretrained policy,
+    # then call regress_meta to select the best skill/task direction.
+    # This applies to DIAYN, APS, and LGSD equally.
+    # ------------------------------------------------------------------ #
+    if hasattr(self.agent, 'regress_meta'):
+        print(f"[finetune] Starting probe phase ({self.cfg.num_init_steps} steps)...")
+        probe_until = utils.Until(self.cfg.num_init_steps, self.cfg.action_repeat)
+        probe_step  = 0
+
         time_step = self.train_env.reset()
-        meta = self.agent.init_meta()
-        current_emb = self._encode_obs(time_step.observation)  # encode once at reset
-        self.replay_storage.add(time_step._replace(observation=current_emb), meta)
-        self.train_video_recorder.init(self.train_env)
-        metrics = None
+        meta      = self.agent.init_meta()
+        current_emb = self._encode_obs(time_step.observation)
 
-        while train_until_step(self.global_step):
-            if time_step.last():
-                self._global_episode += 1
-                self.train_video_recorder.save(f'{self.global_frame}.mp4')
-                if metrics is not None:
-                    elapsed_time, total_time = self.timer.reset()
-                    episode_frame = episode_step * self.cfg.action_repeat
-                    with self.logger.log_and_dump_ctx(self.global_frame, ty='train') as log:
-                        log('fps', episode_frame / elapsed_time)
-                        log('total_time', total_time)
-                        log('episode_reward', episode_reward)
-                        log('episode_length', episode_frame)
-                        log('episode', self.global_episode)
-                        log('buffer_size', len(self.replay_storage))
-                        log('step', self.global_step)
-                time_step = self.train_env.reset()
-                meta = self.agent.init_meta()
-                current_emb = self._encode_obs(time_step.observation)  # encode once at reset
-                self.replay_storage.add(time_step._replace(observation=current_emb), meta)
-                self.train_video_recorder.init(self.train_env)
-                if self.global_frame in self.cfg.snapshots:
-                    self.save_snapshot()
-                episode_step = 0
-                episode_reward = 0
+        # Store probe transitions — extrinsic reward is available here
+        # (reward_free=False during finetuning, so extr_reward is real)
+        if self._clip_precache:
+            self.replay_storage.add(
+                time_step._replace(observation=current_emb), meta)
+        else:
+            self.replay_storage.add(time_step, meta)
 
-            if eval_every_step(self.global_step):
-                self.logger.log('eval_total_time', self.timer.total_time(), self.global_frame)
-                self.eval()
-
-            meta = self.agent.update_meta(meta, self.global_step, time_step)
-
-            # Act using already-encoded obs — no CLIP call here
+        while probe_until(probe_step):
             with torch.no_grad(), utils.eval_mode(self.agent):
-                action = self.agent.act(current_emb, meta, self.global_step,
-                                        eval_mode=False,
-                                        obs_already_encoded=self._clip_precache)
-
-            if not seed_until_step(self.global_step):
-                metrics = self.agent.update(self.replay_iter, self.global_step)
-                self.logger.log_metrics(metrics, self.global_frame, ty='train')
+                action = self.agent.act(
+                    current_emb, meta, probe_step,
+                    eval_mode=False,
+                    obs_already_encoded=self._clip_precache)
 
             time_step = self.train_env.step(action)
-            episode_reward += time_step.reward
+            next_emb  = self._encode_obs(time_step.observation)
+            meta      = self.agent.update_meta(meta, probe_step, time_step)
 
-            # Encode next obs exactly once, then carry forward as current for next step
-            next_emb = self._encode_obs(time_step.observation)
-            self.replay_storage.add(time_step._replace(observation=next_emb), meta)
-            self.train_video_recorder.record(self.train_env)
+            if self._clip_precache:
+                self.replay_storage.add(
+                    time_step._replace(observation=next_emb), meta)
+            else:
+                self.replay_storage.add(time_step, meta)
+
             current_emb = next_emb
+            probe_step += 1
 
-            episode_step += 1
-            self._global_step += 1
+            if time_step.last():
+                time_step   = self.train_env.reset()
+                meta        = self.agent.init_meta()
+                current_emb = self._encode_obs(time_step.observation)
+
+        # Select best skill from probe transitions
+        # This sets agent.solved_meta, which init_meta() returns from now on
+        meta = self.agent.regress_meta(self.replay_iter, 0)
+        print(f"[finetune] Probe complete. Skill selected: {meta}")
+
+    # ------------------------------------------------------------------ #
+    # FINETUNE PHASE (96k steps)
+    # Fixed skill from regress_meta — no further skill updates
+    # ------------------------------------------------------------------ #
+    episode_step, episode_reward = 0, 0
+    time_step   = self.train_env.reset()
+    meta        = self.agent.init_meta()   # returns solved_meta if set
+    current_emb = self._encode_obs(time_step.observation)
+
+    if self._clip_precache:
+        self.replay_storage.add(
+            time_step._replace(observation=current_emb), meta)
+    else:
+        self.replay_storage.add(time_step, meta)
+
+    self.train_video_recorder.init(self.train_env)
+    metrics = None
+
+    while train_until_step(self._global_step):
+        if time_step.last():
+            self._global_episode += 1
+            self.train_video_recorder.save(f'{self.global_frame}.mp4')
+
+            if metrics is not None:
+                elapsed_time, total_time = self.timer.reset()
+                episode_frame = episode_step * self.cfg.action_repeat
+                with self.logger.log_and_dump_ctx(self.global_frame, ty='train') as log:
+                    log('fps',            episode_frame / elapsed_time)
+                    log('total_time',     total_time)
+                    log('episode_reward', episode_reward)
+                    log('episode_length', episode_frame)
+                    log('episode',        self.global_episode)
+                    log('buffer_size',    len(self.replay_storage))
+                    log('step',           self.global_step)
+
+            time_step   = self.train_env.reset()
+            meta        = self.agent.init_meta()   # still returns solved_meta
+            current_emb = self._encode_obs(time_step.observation)
+
+            if self._clip_precache:
+                self.replay_storage.add(
+                    time_step._replace(observation=current_emb), meta)
+            else:
+                self.replay_storage.add(time_step, meta)
+
+            self.train_video_recorder.init(self.train_env)
+            episode_step  = 0
+            episode_reward = 0
+
+        if eval_every_step(self._global_step):
+            self.logger.log('eval_total_time',
+                            self.timer.total_time(), self.global_frame)
+            self.eval()
+
+        # Skill is fixed — no update_meta during finetune phase
+        with torch.no_grad(), utils.eval_mode(self.agent):
+            action = self.agent.act(
+                current_emb, meta, self._global_step,
+                eval_mode=False,
+                obs_already_encoded=self._clip_precache)
+
+        metrics = self.agent.update(self.replay_iter, self._global_step)
+        self.logger.log_metrics(metrics, self.global_frame, ty='train')
+
+        time_step      = self.train_env.step(action)
+        episode_reward += time_step.reward
+        next_emb       = self._encode_obs(time_step.observation)
+
+        if self._clip_precache:
+            self.replay_storage.add(
+                time_step._replace(observation=next_emb), meta)
+        else:
+            self.replay_storage.add(time_step, meta)
+
+        self.train_video_recorder.record(self.train_env)
+        current_emb    = next_emb
+        episode_step   += 1
+        self._global_step += 1
 
     def load_snapshot(self):
+        # If snapshot_path is specified directly, use it
+        if self.cfg.get('snapshot_path', None) is not None:
+            snapshot = Path(self.cfg.snapshot_path)
+            if not snapshot.exists():
+                raise FileNotFoundError(
+                    f"snapshot_path specified but not found: {snapshot}"
+                )
+            print(f"[finetune] Loading snapshot from explicit path: {snapshot}")
+            with snapshot.open('rb') as f:
+                payload = torch.load(f, weights_only=False,
+                                    map_location=self.device)
+            return payload
+
+        # Otherwise fall back to directory-based lookup
         snapshot_base_dir = Path(self.cfg.snapshot_base_dir)
         domain, _ = self.cfg.task.split('_', 1)
-        snapshot_dir = snapshot_base_dir / self.cfg.obs_type / domain / self.cfg.agent.name
+        snapshot_dir = (snapshot_base_dir / self.cfg.obs_type
+                        / domain / self.cfg.agent.name)
 
-        def try_load(seed):
-            snapshot = snapshot_dir / str(
-                seed) / f'snapshot_{self.cfg.snapshot_ts}.pt'
-            if not snapshot.exists():
-                return None
-            with snapshot.open('rb') as f:
-                # payload = torch.load(f)
-                payload = torch.load(f, weights_only=False, map_location=self.device)
-                if payload.get('encoder_type') == 'clip':
-                    pass
-            return payload
+    def try_load(seed):
+        snapshot = snapshot_dir / str(seed) / \
+                   f'snapshot_{self.cfg.snapshot_ts}.pt'
+        if not snapshot.exists():
+            return None
+        with snapshot.open('rb') as f:
+            payload = torch.load(f, weights_only=False,
+                                 map_location=self.device)
+        return payload
+
+    payload = try_load(self.cfg.seed)
+    if payload is None:
+        while True:
+            seed = np.random.randint(1, 11)
+            payload = try_load(seed)
+            if payload is not None:
+                break
+
+    return payload
 
     def save_snapshot(self):
         snapshot_dir = self.work_dir / 'snapshots'

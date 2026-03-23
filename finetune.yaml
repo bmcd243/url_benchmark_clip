@@ -11,7 +11,7 @@ frame_stack: 3 # only works if obs_type=pixels
 action_repeat: 1 # set to 2 for pixels
 discount: 0.99
 # train settings
-num_train_frames: 2000010
+num_train_frames: 100010
 num_seed_frames: 4000
 # eval
 eval_every_frames: 10000
@@ -51,3 +51,6 @@ hydra:
     mem_gb: 160
     nodes: 1
     submitit_folder: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}/.slurm
+
+num_init_steps: 4096   # probe phase length — matches APS/LGSD yaml values
+snapshot_path: null

@@ -169,3 +169,36 @@ class DIAYNAgent(DDPGAgent):
                                  self.critic_target_tau)
 
         return metrics
+
+    @torch.no_grad()
+    def regress_meta(self, replay_iter, step):
+        obs, _, extr_reward, _, next_obs, skill = utils.to_torch(
+            next(replay_iter), self.device
+        )
+        # skill is one-hot (B, 16) — find which skill index each transition used
+        skill_idx = torch.argmax(skill, dim=1)  # (B,)
+        
+        # Compute mean reward per skill
+        skill_rewards = torch.zeros(self.skill_dim, device=self.device)
+        skill_counts  = torch.zeros(self.skill_dim, device=self.device)
+        
+        for i in range(len(skill_idx)):
+            skill_rewards[skill_idx[i]] += extr_reward[i, 0]
+            skill_counts[skill_idx[i]]  += 1
+        
+        # Avoid division by zero for skills that were never sampled
+        skill_counts = torch.clamp(skill_counts, min=1)
+        mean_rewards = skill_rewards / skill_counts
+        
+        best_skill_idx = torch.argmax(mean_rewards).item()
+        
+        skill = np.zeros(self.skill_dim, dtype=np.float32)
+        skill[best_skill_idx] = 1.0
+        
+        meta = OrderedDict()
+        meta['skill'] = skill
+        self.solved_meta = meta
+        
+        print(f"[DIAYN] Best skill: {best_skill_idx}, "
+            f"mean reward: {mean_rewards[best_skill_idx]:.4f}")
+        return meta

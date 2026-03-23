@@ -1,8 +1,6 @@
 <mujoco model="quadruped">
 
-  <include file="./common/skybox.xml"/>
-  <include file="./common/visual.xml"/>
-  <include file="./common/materials.xml"/>
+<include file="./common/materials.xml"/>
 
      <asset>
     <texture file="sky.png" height="100" type="skybox" width="100"/>

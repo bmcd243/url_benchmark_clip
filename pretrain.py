@@ -14,6 +14,7 @@ import hydra
 import numpy as np
 import torch
 import wandb
+import omegaconf
 from dm_env import specs
 from agent.lgsd import LGSDAgent
 
@@ -54,8 +55,34 @@ class Workspace:
                 encoder_type, str(cfg.seed)
             ])
             tags = [cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type]
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, tags=tags)
+            wandb.init(
+                project="urlb", 
+                group=cfg.agent.name, 
+                name=exp_name, 
+                tags=tags,
+                # Add the config here
+                config=omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
+            )
 
+        snapshot_dir = Path(self.cfg.snapshot_dir.replace(
+            '${obs_type}', cfg.obs_type
+        ).replace(
+            '${domain}', cfg.domain
+        ).replace(
+            '${agent.name}', cfg.agent.name
+        ).replace(
+            '${seed}', str(cfg.seed)
+        ))
+        wandb.config.update({
+            'snapshot_dir':    str(snapshot_dir.resolve()),
+            'encoder_type':    encoder_type,
+            'agent_name':      cfg.agent.name,
+            'domain':          cfg.domain,
+            'obs_type':        cfg.obs_type,
+            'seed':            cfg.seed,
+            'run_id':          wandb.run.id
+        })
+        
         self.logger = Logger(self.work_dir,
                              use_tb=cfg.use_tb,
                              use_wandb=cfg.use_wandb)
@@ -262,6 +289,14 @@ class Workspace:
         
         with snapshot.open('wb') as f:
             torch.save(payload, f)
+
+        if self.cfg.use_wandb:
+            wandb.log({
+                'snapshot/frame':    self.global_frame,
+                'snapshot/path':     str(snapshot.resolve()),
+            }, step=self.global_frame)
+        
+        print(f"[pretrain] Snapshot saved: {snapshot}")
 
     def _maybe_encode_obs(self, obs):
         """Encode obs with CLIP before storing in replay buffer."""

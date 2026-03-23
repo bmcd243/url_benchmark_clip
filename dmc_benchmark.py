@@ -37,6 +37,5 @@ PRIMAL_TASKS = {
     'quadruped': 'quadruped_walk',
     'texturedwalker': 'texturedwalker_stand',
     'texturedcheetah': 'texturedcheetah_run',
-    'texturedquadruped': 'texturedquadruped_walk',
     'texturedquadruped': 'texturedquadruped_stand'
 }

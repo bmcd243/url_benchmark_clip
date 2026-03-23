@@ -66,6 +66,18 @@ def make(task,
     env.task.visualize_reward = visualize_reward
     return env
 
+def _get_custom_assets():
+    task_dir = os.path.dirname(__file__)
+    assets = common.ASSETS.copy()
+    for filename in ['sky.png', 'tiles.png', 'robot.png']:
+        filepath = os.path.join(task_dir, filename)
+        if os.path.exists(filepath):
+            with open(filepath, 'rb') as f:
+                assets[filename] = f.read()
+        else:
+            print(f"WARNING: asset '{filename}' not found at {filepath}")
+    return assets
+
 def get_model_and_assets():
     """Returns a tuple containing the model XML string and a dict of assets."""
     task_dir = os.path.dirname(__file__)
@@ -134,7 +146,7 @@ def make_model(floor_size=None, terrain=False, rangefinders=False,
 def stand(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Walk task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Stand(random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -145,7 +157,7 @@ def stand(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 def jump(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Walk task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Jump(desired_height=_JUMP_HEIGHT, random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -156,7 +168,7 @@ def jump(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 def roll(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Walk task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Roll(desired_speed=_WALK_SPEED, random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -167,7 +179,7 @@ def roll(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 def roll_fast(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Walk task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Roll(desired_speed=_RUN_SPEED, random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -179,7 +191,7 @@ def escape(time_limit=_DEFAULT_TIME_LIMIT, random=None,
            environment_kwargs=None):
   """Returns the Escape task."""
   xml_string = make_model(floor_size=40, terrain=True, rangefinders=True)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Escape(random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -191,7 +203,7 @@ def escape(time_limit=_DEFAULT_TIME_LIMIT, random=None,
 def fetch(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Fetch task."""
   xml_string = make_model(walls_and_ball=True)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Fetch(random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -212,7 +224,7 @@ class Physics(mujoco.Physics):
     try:
       sensor_names = self._sensor_types_to_names[sensor_types]
     except KeyError:
-      [sensor_ids] = np.where(np.in1d(self.model.sensor_type, sensor_types))
+      [sensor_ids] = np.where(np.isin(self.model.sensor_type, sensor_types))
       sensor_names = [self.model.id2name(s_id, 'sensor') for s_id in sensor_ids]
       self._sensor_types_to_names[sensor_types] = sensor_names
     return sensor_names
