@@ -2,6 +2,7 @@ import faulthandler
 faulthandler.enable()
 
 import warnings
+import copy
 
 warnings.filterwarnings('ignore', category=DeprecationWarning)
 
@@ -55,13 +56,15 @@ class Workspace:
                 encoder_type, str(cfg.seed)
             ])
             tags = [cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type]
+            # Do NOT pass config= here: agent.obs_type / obs_shape / action_shape
+            # are still '???' at this point and will cause OmegaConf to raise
+            # MissingMandatoryValue. The important fields are logged below via
+            # wandb.config.update after make_agent() fills them in.
             wandb.init(
-                project="urlb", 
-                group=cfg.agent.name, 
-                name=exp_name, 
+                project="urlb",
+                group=cfg.agent.name,
+                name=exp_name,
                 tags=tags,
-                # Add the config here
-                config=omegaconf.OmegaConf.to_container(cfg, resolve=True, throw_on_missing=True)
             )
 
         snapshot_dir = Path(self.cfg.snapshot_dir.replace(
@@ -73,15 +76,18 @@ class Workspace:
         ).replace(
             '${seed}', str(cfg.seed)
         ))
-        wandb.config.update({
-            'snapshot_dir':    str(snapshot_dir.resolve()),
-            'encoder_type':    encoder_type,
-            'agent_name':      cfg.agent.name,
-            'domain':          cfg.domain,
-            'obs_type':        cfg.obs_type,
-            'seed':            cfg.seed,
-            'run_id':          wandb.run.id
-        })
+
+        if cfg.use_wandb:
+            encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
+            wandb.config.update({
+                'snapshot_dir':    str(snapshot_dir.resolve()),
+                'encoder_type':    encoder_type,
+                'agent_name':      cfg.agent.name,
+                'domain':          cfg.domain,
+                'obs_type':        cfg.obs_type,
+                'seed':            cfg.seed,
+                'run_id':          wandb.run.id
+            })
         
         self.logger = Logger(self.work_dir,
                              use_tb=cfg.use_tb,
@@ -89,8 +95,8 @@ class Workspace:
         # create envs
         task = PRIMAL_TASKS[self.cfg.domain]
         encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
-        pixel_size = 224 if (cfg.obs_type == 'pixels' and encoder_type == 'clip') else 84
-
+        # pixel_size = 224 if (cfg.obs_type == 'pixels' and encoder_type == 'clip') else 84
+        pixel_size = 84
         self.train_env = dmc.make(task, cfg.obs_type, cfg.frame_stack,
                                 cfg.action_repeat, cfg.seed, pixel_size=pixel_size)
         self.eval_env = dmc.make(task, cfg.obs_type, cfg.frame_stack,
@@ -102,6 +108,16 @@ class Workspace:
                                 self.train_env.action_spec(),
                                 cfg.num_seed_frames // cfg.action_repeat,
                                 cfg.agent)
+
+        # Now that make_agent() has filled in obs_type/obs_shape/action_shape,
+        # log the full resolved config to wandb.
+        if cfg.use_wandb:
+            try:
+                full_cfg = omegaconf.OmegaConf.to_container(
+                    cfg, resolve=True, throw_on_missing=True)
+                wandb.config.update(full_cfg, allow_val_change=True)
+            except omegaconf.errors.MissingMandatoryValue:
+                pass  # any remaining ??? fields are intentionally unset
 
         encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
         self._clip_precache = (cfg.obs_type == 'pixels' and encoder_type == 'clip')
@@ -279,14 +295,13 @@ class Workspace:
         keys_to_save = ['agent', '_global_step', '_global_episode']
         payload = {k: self.__dict__[k] for k in keys_to_save}
 
-        # Remove CLIP encoder weights before saving — they are frozen
-        # and can be reloaded from the pretrained model at finetuning time
-        if hasattr(payload['agent'], 'encoder') and \
-        hasattr(payload['agent'].encoder, 'model'):
-            encoder_state = payload['agent'].encoder.state_dict()
-            del payload['agent'].encoder
-            payload['encoder_type'] = 'clip'  # flag for reload
-        
+        # Build a separate dict for saving without mutating the live agent
+        if hasattr(self.agent, 'encoder') and hasattr(self.agent.encoder, 'model'):
+            save_agent = copy.copy(self.agent)  # shallow copy
+            del save_agent.encoder
+            payload['agent'] = save_agent
+            payload['encoder_type'] = 'clip'
+
         with snapshot.open('wb') as f:
             torch.save(payload, f)
 

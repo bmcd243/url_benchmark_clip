@@ -1,0 +1,38 @@
+# @package agent
+_target_: agent.lsd.LSDAgent
+name: lsd_clip
+reward_free: ${reward_free}
+obs_type: ???
+obs_shape: ???
+action_shape: ???
+device: ${device}
+lr: 1e-4
+critic_target_tau: 0.01
+update_every_steps: 2
+use_tb: ${use_tb}
+use_wandb: ${use_wandb}
+num_expl_steps: ???
+hidden_dim: 1024
+feature_dim: 256      # Increased from 50: CLIP's 512-d embedding (ViT-B/32) or
+                      # 1024-d (ViT-g-14) is larger than the CNN's 39200-d output
+                      # after trunk compression.  feature_dim on
+                      # CLIP embedding directly.
+stddev_schedule: 0.2
+stddev_clip: 0.3
+nstep: 3
+batch_size: 256
+init_critic: truely affects the
+                      # actor/critic trunk projection; phi operates on the raw
+update_encoder: false  # CLIP weights are frozen throughout pre-training
+encoder_type: clip
+
+clip_model_name: ViT-B-32
+clip_pretrained: openai
+
+# Uncomment to use the larger ViT-g-14 instead:
+# clip_model_name: ViT-g-14
+# clip_pretrained: laion2b_s34b_b88k
+
+# LSD-specific hyperparameters
+skill_dim: 8          # dimensionality of z ~ N(0, I); 8 is a reasonable default
+                      # for MuJoCo locomotion; increase for richer behaviours

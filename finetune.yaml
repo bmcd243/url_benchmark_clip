@@ -19,10 +19,11 @@ num_eval_episodes: 10
 # pretrained
 snapshot_ts: 100000
 snapshots: [100000]
-snapshot_base_dir: ./models
+# snapshot_base_dir: ./models
+snapshot_base_dir: /mnt/fast0/bm844/models
 # replay buffer
 replay_buffer_size: 1000000
-replay_buffer_num_workers: 4
+replay_buffer_num_workers: 0
 batch_size: ${agent.batch_size}
 nstep: ${agent.nstep}
 update_encoder: false # can be either true or false depending if we want to fine-tune encoder
@@ -39,9 +40,15 @@ experiment: exp
 
 hydra:
   run:
-    dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
+    dir: /mnt/fast0/bm844/exp_local/finetune/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
   sweep:
-    dir: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+    dir: /mnt/fast0/bm844/exp_sweep/finetune/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+
+# hydra:
+#   run:
+#     dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
+#   sweep:
+#     dir: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
     subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300
