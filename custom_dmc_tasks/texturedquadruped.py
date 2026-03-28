@@ -210,6 +210,17 @@ def fetch(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
                              control_timestep=_CONTROL_TIMESTEP,
                              **environment_kwargs)
 
+@SUITE.add()
+def walk(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
+  """Returns the Walk task."""
+  xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
+  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  task = Move(desired_speed=_WALK_SPEED, random=random)
+  environment_kwargs = environment_kwargs or {}
+  return control.Environment(physics, task, time_limit=time_limit,
+                             control_timestep=_CONTROL_TIMESTEP,
+                             **environment_kwargs)
+
 
 class Physics(mujoco.Physics):
   """Physics simulation with additional features for the Quadruped domain."""

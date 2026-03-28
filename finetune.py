@@ -14,6 +14,7 @@ import hydra
 import numpy as np
 import torch
 from dm_env import specs
+import wandb
 
 import dmc
 import utils
@@ -41,22 +42,20 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
 
+        # --- ADD THIS W&B INIT BLOCK ---
         if cfg.use_wandb:
-            encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
             exp_name = '_'.join([
-                'finetune', cfg.agent.name, cfg.task, cfg.obs_type, encoder_type, str(cfg.seed)
+                cfg.experiment, cfg.agent.name, cfg.task, cfg.obs_type,
+                str(cfg.seed)
             ])
-            tags = [cfg.agent.name, cfg.task, cfg.obs_type, encoder_type, 'finetune']
-            wandb.init(project='urlb', group=f'{cfg.agent.name}-finetune', name=exp_name, tags=tags)
-            if cfg.get('pretrain_run_id', None):
-                wandb.config.update({
-                    'pretrain_run_id': cfg.pretrain_run_id
-                })
+            tags = [cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type, cfg.task]
+            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, tags=tags)
+        # -------------------------------
 
         # create logger
         self.logger = Logger(self.work_dir,
-                             use_tb=cfg.use_tb,
-                             use_wandb=cfg.use_wandb)
+                                use_tb=cfg.use_tb,
+                                use_wandb=cfg.use_wandb)
         # create envs
 
         encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')

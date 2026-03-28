@@ -10,7 +10,7 @@ from dm_env import specs
 import utils
 from agent.ddpg import DDPGAgent
 
-from agent.spectral_norm import spectral_norm
+from torch.nn.utils import spectral_norm
 
 class TrajEncoder(nn.Module):
     """
@@ -115,20 +115,21 @@ class LSDAgent(DDPGAgent):
         next_obs_enc: torch.Tensor,
         step: int,
     ) -> dict:
-        """
-        Minimise L_phi = -E[ (phi(e') - phi(e))^T z ].
-
-        When update_encoder=True (CNN mode) gradients propagate through
-        obs_enc back to the CNN encoder, so encoder_opt is stepped too.
-        """
         metrics = {}
 
+        # 1. STRICT DETACH: This absolutely prevents the OOM by cutting off the CNN/CLIP graph
+        obs_enc = obs_enc.detach()
+        next_obs_enc = next_obs_enc.detach()
+
+        # 2. Forward pass through the spectral_norm MLP
         phi_s      = self.traj_encoder(obs_enc)
         phi_s_next = self.traj_encoder(next_obs_enc)
-        delta_phi  = phi_s_next - phi_s                         # (B, skill_dim)
-
+        
+        # 3. Mathematically safe single-pass loss (No spectral_norm collapse)
+        delta_phi  = phi_s_next - phi_s                          
         loss = -(delta_phi * skill).sum(dim=1).mean()
 
+        # 4. Standard Optimization
         self.traj_encoder_opt.zero_grad(set_to_none=True)
         if self.encoder_opt is not None:
             self.encoder_opt.zero_grad(set_to_none=True)
@@ -140,9 +141,9 @@ class LSDAgent(DDPGAgent):
             self.encoder_opt.step()
 
         if self.use_tb or self.use_wandb:
-            metrics['lsd_loss']            = loss.item()
-            metrics['lsd_delta_phi_norm']  = delta_phi.norm(dim=1).mean().item()
-            metrics['lsd_phi_s_norm']      = phi_s.norm(dim=1).mean().item()
+            metrics['lsd_loss']             = loss.item()
+            metrics['lsd_delta_phi_norm']   = delta_phi.norm(dim=1).mean().item()
+            metrics['lsd_phi_s_norm']       = phi_s.norm(dim=1).mean().item()
 
         return metrics
 

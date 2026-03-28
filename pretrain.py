@@ -17,7 +17,6 @@ import torch
 import wandb
 import omegaconf
 from dm_env import specs
-from agent.lgsd import LGSDAgent
 
 
 import dmc
@@ -55,7 +54,7 @@ class Workspace:
                 cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type,
                 encoder_type, str(cfg.seed)
             ])
-            tags = [cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type]
+            tags = [cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type]
             # Do NOT pass config= here: agent.obs_type / obs_shape / action_shape
             # are still '???' at this point and will cause OmegaConf to raise
             # MissingMandatoryValue. The important fields are logged below via

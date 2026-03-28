@@ -33,6 +33,9 @@ from dm_control.manipulation.shared import workspaces
 from dm_control.utils import rewards
 import numpy as np
 
+import os
+from dm_control import mjcf
+
 
 _ReachWorkspace = collections.namedtuple(
     '_ReachWorkspace', ['target_bbox', 'tcp_bbox', 'arm_offset'])
@@ -197,6 +200,31 @@ def _reach(task_id, obs_settings, use_site):
     An instance of `reach.Reach`.
   """
   arena = arenas.Standard()
+
+  ###################
+  
+  CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+  sky_path = os.path.join(CURRENT_DIR, 'sky.png')
+  tiles_path = os.path.join(CURRENT_DIR, 'tiles.png')
+  
+  arena.mjcf_model.asset.add('texture', type='skybox', file=sky_path)
+  arena.mjcf_model.asset.add('texture', type='2d', name='texplane', file=tiles_path)
+  arena.mjcf_model.asset.add('material', name='MatPlane', texture='texplane', 
+                               reflectance=0.05, specular=1, shininess=1, texrepeat=(60, 60))
+  
+  # 2. Find the default grey floor and apply the tile texture
+  floor = arena.mjcf_model.find('geom', 'floor')
+  if floor is not None:
+      floor.material = 'MatPlane'
+      # Remove the default rgba so the texture renders cleanly
+      if hasattr(floor, 'rgba'):
+          floor.rgba = None
+
+
+
+  ###################
+
+
   arm = robots.make_arm(obs_settings=obs_settings)
   hand = robots.make_hand(obs_settings=obs_settings)
   if use_site:

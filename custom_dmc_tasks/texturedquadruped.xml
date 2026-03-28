@@ -1,14 +1,17 @@
 <mujoco model="quadruped">
 
-<include file="./common/materials.xml"/>
+  <include file="./common/materials.xml"/>
 
-     <asset>
+  <asset>
     <texture file="sky.png" height="100" type="skybox" width="100"/>
     <texture file="tiles.png" height="100" name="texplane" type="2d" width="100"/>
-    <material name="MatPlane" reflectance="0.5" shininess="1" specular="1"
-              texrepeat="60 60" texture="texplane"/>
-     <hfield name="terrain" ncol="201" nrow="201" size="30 30 5 .1"/>
-   </asset>
+    <material name="MatPlane" reflectance="0" shininess="0" specular="0" texrepeat="60 60" texture="texplane"/>
+    
+    <texture file="robot.png" height="1278" name="texgeom" type="cube" width="127"/>
+    <material name="geom" texture="texgeom" texuniform="true" specular="1" shininess="1" />
+    
+    <hfield name="terrain" ncol="201" nrow="201" size="30 30 5 .1"/>
+  </asset>
 
   <visual>
     <rgba rangefinder="1 1 0.1 0.1"/>
@@ -20,9 +23,8 @@
   <default>
     <geom solimp=".9 .99 .003" solref=".01 1"/>
     <default class="body">
-      <geom  type="capsule" size=".08" condim="1" material="self" density="500"/>
-      <joint type="hinge" damping="30" armature=".01"
-             limited="true" solimplimit="0 .99 .01"/>
+      <geom type="capsule" size=".08" condim="1" material="geom" density="500"/>
+      <joint type="hinge" damping="30" armature=".01" limited="true" solimplimit="0 .99 .01"/>
       <default class="hip">
         <default class="yaw">
           <joint axis="0 0 1" range="-50 50"/>
@@ -69,14 +71,15 @@
   </default>
 
   <asset>
-    <texture name="ball" builtin="checker" mark="cross" width="151" height="151"
-             rgb1="0.1 0.1 0.1" rgb2="0.9 0.9 0.9" markrgb="1 1 1"/>
+    <texture name="ball" builtin="checker" mark="cross" width="151" height="151" rgb1="0.1 0.1 0.1" rgb2="0.9 0.9 0.9" markrgb="1 1 1"/>
     <material name="ball" texture="ball" />
   </asset>
 
-
   <worldbody>
-    <geom name="floor" type="plane" size="15 15 .5" material="MatPlane"/>
+    <light cutoff="100" diffuse="1 1 1" dir="0 0 -1.5" directional="true" exponent="1" pos="0 0 1" specular=".5 .5 .5"/>
+
+    <geom name="floor" type="plane" condim="3" rgba="1 1 1 1" size="15 15 0.125" material="MatPlane"/>
+    
     <geom name="wall_px" class="wall" pos="-15.7 0 .7" zaxis="1 0 1"  size="1 15 .5"/>
     <geom name="wall_py" class="wall" pos="0 -15.7 .7" zaxis="0 1 1"  size="15 1 .5"/>
     <geom name="wall_nx" class="wall" pos="15.7 0 .7" zaxis="-1 0 1"  size="1 15 .5"/>
@@ -90,9 +93,8 @@
       <freejoint name="root"/>
 
       <camera name="x"  pos="-1.7 0 1" xyaxes="0 -1 0 .75 0 1" mode="trackcom"/>
-      <camera name="y"  pos="0 4 2" xyaxes="-1 0 0 0 -.5 1" mode="trackcom"/>
+      <camera name="y"  pos="0 2.5 1.5" xyaxes="-1 0 0 0 -.5 1" mode="trackcom"/>
       <camera name="egocentric"  pos=".3 0 .11" xyaxes="0 -1 0 .4 0 1" fovy="60"/>
-      <light name="light" pos="0 0 4" mode="trackcom"/>
 
       <geom name="eye_r" type="cylinder" size=".05"  fromto=".1 -.07 .12 .31 -.07 .08" mass="0"/>
       <site name="pupil_r" type="sphere" size=".033"  pos=".3 -.07 .08" zaxis="1 0 0" material="eye"/>
@@ -202,7 +204,6 @@
       <freejoint name="ball_root"/>
       <geom name="ball" size=".15" material="ball" priority="1" condim="6" friction=".7 .005 .005"
             solref="-10000 -30"/>
-      <light name="ball_light" pos="0 0 4" mode="trackcom"/>
     </body>
 
   </worldbody>

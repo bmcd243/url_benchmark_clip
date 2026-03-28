@@ -1,0 +1,20 @@
+defaults:
+  - agent: diayn
+
+# task settings
+task: walker_stand
+obs_type: pixels 
+frame_stack: 3 
+action_repeat: 1 
+
+# pretrained
+snapshot_ts: 2000000
+snapshot_base_dir: ./pretrained_models
+
+# search settings
+num_candidates: 16 # For APS, this is how many random continuous vectors to test. For DIAYN, it will automatically just use agent.skill_dim
+eval_steps: 50 # How many frames to roll out to judge the skill
+
+# misc
+seed: 1
+device: cuda
