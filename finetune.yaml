@@ -40,16 +40,11 @@ experiment: finetune
 
 hydra:
   run:
-    dir: /mnt/fast0/bm844/exp_local/finetune/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
+    dir: /mnt/fast0/bm844/exp_local/finetune/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_seed${seed}
   sweep:
-    dir: /mnt/fast0/bm844/exp_sweep/finetune/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+    dir: /mnt/fast0/bm844/exp_sweep/finetune/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${task}
+    subdir: seed${seed}
 
-# hydra:
-#   run:
-#     dir: ./exp_local/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
-#   sweep:
-#     dir: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
-    subdir: ${hydra.job.num}
   launcher:
     timeout_min: 4300
     cpus_per_task: 10
@@ -57,7 +52,7 @@ hydra:
     tasks_per_node: 1
     mem_gb: 160
     nodes: 1
-    submitit_folder: ./exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}/.slurm
+    submitit_folder: /mnt/fast0/bm844/exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}/.slurm
 
 num_init_steps: 4096   # probe phase length — matches APS/LGSD yaml values
 snapshot_path: null

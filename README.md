@@ -1,95 +1,115 @@
-# The Unsupervised Reinforcement Learning Benchmark (URLB)
+# CLIP-Enhanced Unsupervised Reinforcement Learning Benchmark (URLB)
 
-URLB provides a set of leading algorithms for unsupervised reinforcement learning where agents first pre-train without access to extrinsic rewards and then are finetuned to downstream tasks.
+This codebase extends [URLB](https://github.com/rll-research/url_benchmark) with frozen OpenCLIP visual encoders as a drop-in replacement for the default CNN encoder, investigating whether rich pretrained visual representations improve unsupervised skill discovery under pixel observations.
 
-This codebase was adapted from [DrQv2](https://github.com/facebookresearch/drqv2). The DDPG agent and training scripts were developed by Denis Yarats. All authors contributed to developing individual baselines for URLB.
+The base codebase was adapted from [DrQv2](https://github.com/facebookresearch/drqv2). The DDPG agent and training scripts were developed by Denis Yarats. All authors contributed to developing individual baselines for URLB.
+
+## Key Contributions
+
+- **CLIP encoder integration**: a frozen OpenCLIP ViT-B/32 encoder replaces the trainable CNN for pixel observations, with stacked-frame concatenation and pre-cached embeddings for training efficiency
+- **Textured environments**: custom MuJoCo domains (`texturedwalker`, `texturedquadruped`, `texturedcheetah`) with realistic sky, floor, and robot textures designed to better utilise CLIP's visual priors
+- **CLIP variants of skill-based agents**: `diayn_clip` and `aps_clip` replace the CNN encoder with CLIP while keeping the skill discovery objective unchanged
 
 ## Requirements
-We assume you have access to a GPU that can run CUDA 10.2 and CUDNN 8. Then, the simplest way to install all required dependencies is to create an anaconda environment by running
+
+A CUDA-capable GPU is required. Install dependencies via:
 ```sh
-conda env create -f conda_env.yml
+pip install -r requirements.txt
 ```
-After the instalation ends you can activate your environment with
-```sh
-conda activate urlb
-```
+
+The key additional dependencies over the original URLB are `open_clip_torch` and `clip`.
 
 ## Implemented Agents
-| Agent | Command | Implementation Author(s) | Paper |
+
+| Agent | CNN command | CLIP command | Paper |
 |---|---|---|---|
-| ICM | `agent=icm` | Denis | [paper](https://arxiv.org/abs/1705.05363)|
-| ProtoRL | `agent=proto` | Denis | [paper](https://arxiv.org/abs/2102.11271)|
-| DIAYN | `agent=diayn` | Misha | [paper](https://arxiv.org/abs/1802.06070)|
-| APT(ICM) | `agent=icm_apt` | Hao, Kimin | [paper](https://arxiv.org/abs/2103.04551)|
-| APT(Ind) | `agent=ind_apt` | Hao, Kimin | [paper](https://arxiv.org/abs/2103.04551)|
-| APS | `agent=aps` | Hao, Kimin | [paper](http://proceedings.mlr.press/v139/liu21b.html)|
-| SMM | `agent=smm` | Albert | [paper](https://arxiv.org/abs/1906.05274) |
-| RND | `agent=rnd` | Kevin | [paper](https://arxiv.org/abs/1810.12894) |
-| Disagreement | `agent=disagreement` | Catherine | [paper](https://arxiv.org/abs/1906.04161) |
+| DIAYN | `agent=diayn_cnn` | `agent=diayn_clip` | [paper](https://arxiv.org/abs/1802.06070) |
+| APS | `agent=aps_cnn` | `agent=aps_clip` | [paper](http://proceedings.mlr.press/v139/liu21b.html) |
+| DDPG | `agent=ddpg` | — | [paper](https://arxiv.org/abs/1509.02971) |
 
 ## Available Domains
-We support the following domains.
-| Domain | Tasks |
+
+| Domain | Tasks | Notes |
+|---|---|---|
+| `walker` | `stand`, `walk`, `run`, `flip` | Original URLB |
+| `quadruped` | `walk`, `run`, `stand`, `jump` | Original URLB |
+| `jaco` | `reach_top_left`, `reach_top_right`, `reach_bottom_left`, `reach_bottom_right` | Original URLB |
+| `texturedwalker` | `stand`, `walk`, `run`, `flip` | Textured variant |
+| `texturedquadruped` | `stand`, `walk`, `run`, `jump` | Textured variant |
+| `texturedcheetah` | `run`, `flip` | Textured variant |
+
+## Observation Modes
+
+| Mode | Command |
 |---|---|
-| `walker` | `stand`, `walk`, `run`, `flip` |
-| `quadruped` | `walk`, `run`, `stand`, `jump` |
-| `jaco` | `reach_top_left`, `reach_top_right`, `reach_bottom_left`, `reach_bottom_right` |
-
-
-## Domain observation mode
-Each domain supports two observation modes: states and pixels.
-| Model | Command |
-|---|---|
-| states | `obs_type=states` |
-| pixels | `obs_type=pixels` |
-
+| States | `obs_type=states` |
+| Pixels (CNN encoder) | `obs_type=pixels encoder_type=cnn` |
+| Pixels (CLIP encoder) | `obs_type=pixels encoder_type=clip` |
 
 ## Instructions
+
 ### Pre-training
-To run pre-training use the `pretrain.py` script
+
+To pre-train DIAYN with a CLIP encoder on the textured walker:
 ```sh
-python pretrain.py agent=icm domain=walker
+python pretrain.py agent=diayn_clip domain=texturedwalker obs_type=pixels
 ```
-or, if you want to train a skill-based agent, like DIAYN, run:
+
+To pre-train APS with a CLIP encoder on the textured quadruped:
 ```sh
-python pretrain.py agent=diayn domain=walker
+python pretrain.py agent=aps_clip domain=texturedquadruped obs_type=pixels
 ```
-This script will produce several agent snapshots after training for `100k`, `500k`, `1M`, and `2M` frames. The snapshots will be stored under the following directory:
+
+Snapshots are saved at `100k`, `500k`, `1M`, and `2M` frames to the directory specified by `snapshot_dir` in `pretrain.yaml`. A final snapshot is also saved unconditionally when training completes.
+
+To run with Weights and Biases logging:
 ```sh
-./pretrained_models/<obs_type>/<domain>/<agent>/
-```
-For example:
-```sh
-./pretrained_models/states/walker/icm/
+python pretrain.py agent=diayn_clip domain=texturedwalker obs_type=pixels use_wandb=true
 ```
 
 ### Fine-tuning
-Once you have pre-trained your method, you can use the saved snapshots to initialize the `DDPG` agent and fine-tune it on a downstream task. For example, let's say you have pre-trained `ICM`, you can fine-tune it on `walker_run` by running the following command:
-```sh
-python finetune.py pretrained_agent=icm task=walker_run snapshot_ts=1000000 obs_type=states
-```
-This will load a snapshot stored in `./pretrained_models/states/walker/icm/snapshot_1000000.pt`, initialize `DDPG` with it (both the actor and critic), and start training on `walker_run` using the extrinsic reward of the task.
 
-For methods that use skills, include the agent, and the `reward_free` tag to false.
+Fine-tuning loads a pre-trained snapshot and trains on a downstream task using extrinsic reward. Pass the snapshot path directly:
 ```sh
-python finetune.py pretrained_agent=smm task=walker_run snapshot_ts=1000000 obs_type=states agent=smm reward_free=false
+python finetune.py \
+  agent=diayn_clip \
+  task=texturedwalker_run \
+  obs_type=pixels \
+  snapshot_path=/path/to/snapshot_2000000.pt \
+  reward_free=false \
+  seed=1
+```
+
+To run three seeds in parallel using Hydra multirun:
+```sh
+python finetune.py -m \
+  agent=diayn_clip \
+  task=texturedwalker_run \
+  obs_type=pixels \
+  snapshot_path=/path/to/snapshot_2000000.pt \
+  reward_free=false \
+  seed=1,2,3 \
+  use_wandb=true
 ```
 
 ### Monitoring
-Logs are stored in the `exp_local` folder. To launch tensorboard run:
+
+Logs are stored under the directory specified by `hydra.run.dir` in `pretrain.yaml` / `finetune.yaml`. To launch tensorboard:
 ```sh
-tensorboard --logdir exp_local
+tensorboard --logdir /path/to/exp_local
 ```
-The console output is also available in a form:
+
+Console output format:
 ```
 | train | F: 6000 | S: 3000 | E: 6 | L: 1000 | R: 5.5177 | FPS: 96.7586 | T: 0:00:42
 ```
-a training entry decodes as
-```
-F  : total number of environment frames
-S  : total number of agent steps
-E  : total number of episodes
-R  : episode return
-FPS: training throughput (frames per second)
-T  : total training time
-```
+
+| Key | Meaning |
+|---|---|
+| F | Total environment frames |
+| S | Total agent steps |
+| E | Total episodes |
+| L | Episode length |
+| R | Episode return |
+| FPS | Training throughput |
+| T | Total training time |

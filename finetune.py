@@ -42,15 +42,21 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
 
-        # --- ADD THIS W&B INIT BLOCK ---
         if cfg.use_wandb:
             exp_name = '_'.join([
-                cfg.experiment, cfg.agent.name, cfg.task, cfg.obs_type,
-                str(cfg.seed)
+                cfg.experiment,
+                cfg.agent.name,
+                cfg.task,
+                cfg.obs_type,
+                encoder_type,
+                f'seed{cfg.seed}'      # explicit seed label
             ])
-            tags = [cfg.experiment, cfg.agent.name, cfg.domain, cfg.obs_type, encoder_type, cfg.task]
-            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name, tags=tags)
-        # -------------------------------
+            wandb.init(
+                project="urlb",
+                group=f"{cfg.agent.name}_{cfg.task}",   # group all seeds together
+                name=exp_name,
+                tags=[cfg.experiment, cfg.agent.name, cfg.task, cfg.obs_type, encoder_type]
+            )
 
         # create logger
         self.logger = Logger(self.work_dir,
