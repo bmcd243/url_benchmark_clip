@@ -1,20 +1,32 @@
 defaults:
   - agent: diayn
 
+# mode
+reward_free: false
+
 # task settings
-task: walker_stand
-obs_type: pixels 
+task: texturedwalker_stand
+obs_type: pixels
 frame_stack: 3 
-action_repeat: 1 
+action_repeat: 2 # Set to 2 to match URLB pixel-based learning
+discount: 0.99
+
+# Dummy variables to satisfy Hydra agent interpolations
+batch_size: 256
+nstep: 3
+update_encoder: false
+use_tb: false
 
 # pretrained
 snapshot_ts: 2000000
-snapshot_base_dir: ./pretrained_models
+snapshot_base_dir: /mnt/fast0/bm844/models
 
 # search settings
-num_candidates: 16 # For APS, this is how many random continuous vectors to test. For DIAYN, it will automatically just use agent.skill_dim
-eval_steps: 50 # How many frames to roll out to judge the skill
+num_candidates: 16
+eval_steps: 50 
 
 # misc
 seed: 1
 device: cuda
+use_wandb: true
+experiment: zero_shot

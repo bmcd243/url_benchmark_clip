@@ -8,7 +8,7 @@ reward_free: false
 task: walker_stand
 obs_type: states # [states, pixels]
 frame_stack: 3 # only works if obs_type=pixels
-action_repeat: 1 # set to 2 for pixels
+action_repeat: 2
 discount: 0.99
 # train settings
 num_train_frames: 100010

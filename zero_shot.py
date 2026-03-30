@@ -1,4 +1,12 @@
+
 import os
+import warnings
+warnings.filterwarnings('ignore')
+
+os.environ['MKL_SERVICE_FORCE_INTEL'] = '1'
+os.environ['MUJOCO_GL'] = 'egl'
+
+
 import hydra
 import torch
 import numpy as np
@@ -6,6 +14,7 @@ import clip
 from PIL import Image
 from pathlib import Path
 import warnings
+import wandb
 
 import dmc
 import utils
@@ -19,11 +28,22 @@ class ZeroShotEvaluator:
         self.device = torch.device(cfg.device)
         self.work_dir = Path.cwd()
         
-        # 1. Setup Environment
+        # --- 1. W&B Integration ---
+        if getattr(cfg, 'use_wandb', False):
+            exp_name = '_'.join([
+                getattr(cfg, 'experiment', 'zero_shot'), 
+                cfg.agent.name, 
+                cfg.task, 
+                cfg.obs_type,
+                str(cfg.seed)
+            ])
+            wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
+        
+        # --- 2. Setup Environment ---
         print(f"Loading Environment: {cfg.task}...")
         self.env = dmc.make(cfg.task, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed)
         
-        # 2. Setup Agent
+        # --- 3. Setup Agent ---
         print(f"Loading Agent: {cfg.agent.name}...")
         self.agent = hydra.utils.instantiate(
             cfg.agent, 
@@ -33,34 +53,36 @@ class ZeroShotEvaluator:
             num_expl_steps=0
         )
         
-        # 3. Load Snapshot
-        snapshot_dir = Path(cfg.snapshot_base_dir) / cfg.obs_type / cfg.task.split('_')[0] / cfg.agent.name / str(cfg.seed)
+        # --- 4. Load Snapshot (Matches finetune.py logic) ---
+        domain = cfg.task.split('_')[0]
+        snapshot_dir = Path(cfg.snapshot_base_dir) / cfg.obs_type / domain / cfg.agent.name / str(cfg.seed)
         snapshot_path = snapshot_dir / f'snapshot_{cfg.snapshot_ts}.pt'
+        
         if not snapshot_path.exists():
             raise FileNotFoundError(f"Snapshot not found at {snapshot_path}")
             
         with snapshot_path.open('rb') as f:
-            payload = torch.load(f)
+            payload = torch.load(f, weights_only=False)
         self.agent.init_from(payload['agent'])
-        self.agent.train(False) # Set to eval mode
+        self.agent.train(False) 
         
-        # 4. Load CLIP
+        # --- 5. Load CLIP & Video Recorder ---
         print("Loading CLIP (ViT-B/32)...")
         self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=self.device)
         
-        self.video_recorder = VideoRecorder(self.work_dir)
+        cam_id = 2 if 'quadruped' in cfg.task else 0
+        # We set use_wandb=False here to prevent the default 'eval/video' logging, 
+        # allowing us to do custom prompt-based logging later.
+        self.video_recorder = VideoRecorder(self.work_dir, camera_id=cam_id, use_wandb=False)
 
     def generate_candidate_skills(self):
-        """Generates candidate skills depending on if the agent is discrete (DIAYN) or continuous (APS)"""
         candidates = []
         if 'diayn' in self.cfg.agent.name:
-            # DIAYN: Test all discrete skills (one-hot vectors)
             for i in range(self.agent.skill_dim):
                 skill = np.zeros(self.agent.skill_dim, dtype=np.float32)
                 skill[i] = 1.0
                 candidates.append(skill)
         elif 'aps' in self.cfg.agent.name:
-            # APS: Sample random continuous vectors on the unit sphere
             for _ in range(self.cfg.num_candidates):
                 task = np.random.randn(self.agent.sf_dim).astype(np.float32)
                 task = task / np.linalg.norm(task)
@@ -71,8 +93,6 @@ class ZeroShotEvaluator:
 
     @torch.no_grad()
     def evaluate_skill(self, skill, text_features):
-        """Rolls out a skill for N steps and scores the rendered images against the text prompt"""
-        # Format meta dict based on agent type
         meta_key = 'skill' if 'diayn' in self.cfg.agent.name else 'task'
         meta = {meta_key: skill}
         
@@ -80,24 +100,19 @@ class ZeroShotEvaluator:
         total_similarity = 0.0
         steps_taken = 0
         
+        cam_id = 2 if 'quadruped' in self.cfg.task else 0
+        
         for _ in range(self.cfg.eval_steps):
             if time_step.last():
                 break
                 
-            # Get action
             action = self.agent.act(time_step.observation, meta, 0, eval_mode=True)
             time_step = self.env.step(action)
             
-            # Render a clean image directly from the physics engine for CLIP
-            # Camera 0 is side view, Camera 2 is specific to quadruped
-            cam_id = 2 if 'quadruped' in self.cfg.task else 0
             img_array = self.env.physics.render(height=224, width=224, camera_id=cam_id)
-            
-            # Preprocess for CLIP
             pil_image = Image.fromarray(img_array)
             img_tensor = self.clip_preprocess(pil_image).unsqueeze(0).to(self.device)
             
-            # Get CLIP image features and score
             img_features = self.clip_model.encode_image(img_tensor)
             img_features = img_features / img_features.norm(dim=-1, keepdim=True)
             
@@ -114,24 +129,22 @@ class ZeroShotEvaluator:
         print("Type 'quit' to exit.")
         print("="*50)
         
+        step_idx = 0
         while True:
             prompt = input("\nPrompt: ")
             if prompt.lower() in ['quit', 'exit', 'q']:
                 break
                 
-            # 1. Encode Text
             text_tokens = clip.tokenize([prompt]).to(self.device)
             text_features = self.clip_model.encode_text(text_tokens)
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
             
-            # 2. Get Candidates
             candidates = self.generate_candidate_skills()
             best_skill = None
             best_score = -float('inf')
             
             print(f"Testing {len(candidates)} candidate skills in the background...")
             
-            # 3. Test Candidates
             for i, skill in enumerate(candidates):
                 score = self.evaluate_skill(skill, text_features)
                 if score > best_score:
@@ -140,7 +153,6 @@ class ZeroShotEvaluator:
             
             print(f"--> Found best skill with alignment score: {best_score:.4f}")
             
-            # 4. Record a full video of the winning skill
             print(f"Recording video of the best skill...")
             meta_key = 'skill' if 'diayn' in self.cfg.agent.name else 'task'
             meta = {meta_key: best_skill}
@@ -149,16 +161,30 @@ class ZeroShotEvaluator:
             self.video_recorder.init(self.env, enabled=True)
             
             steps = 0
-            while not time_step.last() and steps < 250: # Max 250 frames for the video
+            while not time_step.last() and steps < 250:
                 action = self.agent.act(time_step.observation, meta, 0, eval_mode=True)
                 time_step = self.env.step(action)
                 self.video_recorder.record(self.env)
                 steps += 1
                 
-            vid_name = f"{prompt.replace(' ', '_')}.mp4"
-            self.video_recorder.save(vid_name)
-            print(f"Saved to: {self.work_dir}/eval_video/{vid_name}")
-
+            if getattr(self.cfg, 'use_wandb', False):
+                print(f"Uploading video to W&B...")
+                # Extract frames directly from memory
+                frames = np.transpose(np.array(self.video_recorder.frames), (0, 3, 1, 2))
+                safe_prompt_name = prompt.replace(" ", "_")
+                
+                wandb.log({
+                    f"zero_shot_videos/{safe_prompt_name}": wandb.Video(frames[::8, :, ::2, ::2], fps=6, format="gif"),
+                    "zero_shot/alignment_score": best_score,
+                    "zero_shot/prompt": prompt
+                }, step=step_idx)
+            else:
+                print("W&B is disabled. Video was not saved locally or remotely.")
+                
+            # Clear the frames from memory to prevent RAM leaks
+            self.video_recorder.frames = []
+            
+            step_idx += 1
 
 @hydra.main(config_path='.', config_name='zero_shot')
 def main(cfg):

@@ -9,31 +9,23 @@ from dm_env import specs
 
 import utils
 from agent.ddpg import DDPGAgent
+from agent.spectral_norm import spectral_norm
 
-from torch.nn.utils import spectral_norm
 
 class TrajEncoder(nn.Module):
-    """
-    Representation function phi mapping observations (or embeddings) to a
-    latent skill space.
-    """
     def __init__(self, obs_dim: int, hidden_dim: int, skill_dim: int):
         super().__init__()
-        
-        # Build the standard unconstrained network first
+        te_hidden_dim = skill_dim * 16
+
         self.net = nn.Sequential(
-            nn.Linear(obs_dim, hidden_dim),
+            nn.Linear(obs_dim,       te_hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(te_hidden_dim, te_hidden_dim),
             nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, skill_dim),
+            nn.Linear(te_hidden_dim, skill_dim),
         )
-        
-        #   Apply standard URLB weight initialization
         self.apply(utils.weight_init)
 
-        # Apply the custom LSD spectral norm to the linear layers
-        # The linear layers are at indices 0, 2, and 4 in the Sequential block
         spectral_norm(self.net[0])
         spectral_norm(self.net[2])
         spectral_norm(self.net[4])
@@ -41,33 +33,29 @@ class TrajEncoder(nn.Module):
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.net(obs)
 
-
 class LSDAgent(DDPGAgent):
 
-    def __init__(
-        self,
-        skill_dim: int,
-        update_encoder: bool,
-        encoder_type: str = 'cnn',
-        **kwargs,
-    ):
+    def __init__(self, skill_dim, update_encoder, encoder_type='cnn', **kwargs):
         self.skill_dim = skill_dim
         self.update_encoder = update_encoder
+        # Remove this line:
+        # self.te_spectral_coef = float(kwargs.pop('te_spectral_coef', 1.0))
+        self.te_lr = float(kwargs.pop('traj_encoder_lr', kwargs.get('lr', 1e-4)))
 
-        # Inject encoder type and skill meta-dim before building base agent
         kwargs['encoder_type'] = encoder_type
         kwargs['meta_dim'] = self.skill_dim
-
         super().__init__(**kwargs)
 
-        # phi input dim = encoder output dim (obs_dim already includes meta_dim)
         enc_dim = self.obs_dim - self.skill_dim
         self.traj_encoder = TrajEncoder(
-            enc_dim, kwargs['hidden_dim'], self.skill_dim
+            enc_dim,
+            kwargs['hidden_dim'],
+            self.skill_dim,
+            # No spectral_coef argument
         ).to(self.device)
 
         self.traj_encoder_opt = torch.optim.Adam(
-            self.traj_encoder.parameters(), lr=self.lr
+            self.traj_encoder.parameters(), lr=self.te_lr
         )
         self.traj_encoder.train()
 
@@ -79,6 +67,7 @@ class LSDAgent(DDPGAgent):
         if self.solved_meta is not None:
             return self.solved_meta
         skill = np.random.randn(self.skill_dim).astype(np.float32)
+        skill = skill / (np.linalg.norm(skill) + 1e-12)
         meta = OrderedDict()
         meta['skill'] = skill
         return meta
@@ -99,51 +88,50 @@ class LSDAgent(DDPGAgent):
         """
         r = (phi(e') - phi(e))^T z      shape: (B, 1)
         """
+        skill = F.normalize(skill.float(), dim=1, eps=1e-12)
+        obs_enc = obs_enc.float()
+        next_obs_enc = next_obs_enc.float()
         with torch.no_grad():
-            delta_phi = self.traj_encoder(next_obs_enc) - self.traj_encoder(obs_enc)
+            phi_next = self.traj_encoder(next_obs_enc)
+            phi_cur = self.traj_encoder(obs_enc)
+            if not (torch.isfinite(phi_next).all() and torch.isfinite(phi_cur).all()):
+                return torch.zeros(
+                    (obs_enc.size(0), 1),
+                    device=obs_enc.device,
+                    dtype=obs_enc.dtype,
+                )
+            delta_phi = phi_next - phi_cur
         reward = (delta_phi * skill).sum(dim=1, keepdim=True)
+        if not torch.isfinite(reward).all():
+            reward = torch.zeros_like(reward)
         return reward
 
     # ------------------------------------------------------------------
     # Trajectory encoder update
     # ------------------------------------------------------------------
 
-    def update_traj_encoder(
-        self,
-        skill: torch.Tensor,
-        obs_enc: torch.Tensor,
-        next_obs_enc: torch.Tensor,
-        step: int,
-    ) -> dict:
+    def update_traj_encoder(self, skill, obs_enc, next_obs_enc, step):
         metrics = {}
 
-        # 1. STRICT DETACH: This absolutely prevents the OOM by cutting off the CNN/CLIP graph
-        obs_enc = obs_enc.detach()
-        next_obs_enc = next_obs_enc.detach()
+        obs_enc      = obs_enc.detach().float()
+        next_obs_enc = next_obs_enc.detach().float()
+        skill        = F.normalize(skill.detach().float(), dim=1, eps=1e-12)
 
-        # 2. Forward pass through the spectral_norm MLP
         phi_s      = self.traj_encoder(obs_enc)
         phi_s_next = self.traj_encoder(next_obs_enc)
-        
-        # 3. Mathematically safe single-pass loss (No spectral_norm collapse)
-        delta_phi  = phi_s_next - phi_s                          
-        loss = -(delta_phi * skill).sum(dim=1).mean()
+        delta_phi  = phi_s_next - phi_s
+        loss       = -(delta_phi * skill).sum(dim=1).mean()
 
-        # 4. Standard Optimization
         self.traj_encoder_opt.zero_grad(set_to_none=True)
-        if self.encoder_opt is not None:
-            self.encoder_opt.zero_grad(set_to_none=True)
-
         loss.backward()
-
+        torch.nn.utils.clip_grad_norm_(self.traj_encoder.parameters(), max_norm=1.0)
         self.traj_encoder_opt.step()
-        if self.encoder_opt is not None:
-            self.encoder_opt.step()
+        # No project_spectral() needed — hook fires on next forward pass
 
         if self.use_tb or self.use_wandb:
-            metrics['lsd_loss']             = loss.item()
-            metrics['lsd_delta_phi_norm']   = delta_phi.norm(dim=1).mean().item()
-            metrics['lsd_phi_s_norm']       = phi_s.norm(dim=1).mean().item()
+            metrics['lsd_loss']           = loss.item()
+            metrics['lsd_delta_phi_norm'] = delta_phi.norm(dim=1).mean().item()
+            metrics['lsd_phi_var']        = phi_s.var(dim=0).mean().item()
 
         return metrics
 
@@ -161,6 +149,8 @@ class LSDAgent(DDPGAgent):
         obs, action, extr_reward, discount, next_obs, skill = utils.to_torch(
             batch, self.device
         )
+        skill = skill.float()
+        skill_norm = F.normalize(skill, dim=1, eps=1e-12)
 
         # ---- encode ----
         # For CLIP:  aug_and_encode returns the pre-cached embedding directly.
@@ -182,10 +172,12 @@ class LSDAgent(DDPGAgent):
         # ---- trajectory encoder + intrinsic reward ----
         if self.reward_free:
             metrics.update(
-                self.update_traj_encoder(skill, obs_enc, next_obs_enc, step)
+                self.update_traj_encoder(skill_norm, obs_enc, next_obs_enc, step)
             )
             with torch.no_grad():
-                intr_reward = self.compute_intr_reward(skill, obs_enc, next_obs_enc)
+                intr_reward = self.compute_intr_reward(
+                    skill_norm, obs_enc, next_obs_enc
+                )
             if self.use_tb or self.use_wandb:
                 metrics['intr_reward'] = intr_reward.mean().item()
             reward = intr_reward
@@ -201,8 +193,8 @@ class LSDAgent(DDPGAgent):
         next_obs_enc = next_obs_enc.detach()
 
         # Concatenate skill for actor / critic (same layout as DIAYN / LGSD)
-        obs_with_skill      = torch.cat([obs_enc,      skill], dim=1)
-        next_obs_with_skill = torch.cat([next_obs_enc, skill], dim=1)
+        obs_with_skill = torch.cat([obs_enc, skill_norm], dim=1)
+        next_obs_with_skill = torch.cat([next_obs_enc, skill_norm], dim=1)
 
         metrics.update(
             self.update_critic(
