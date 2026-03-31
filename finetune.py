@@ -42,6 +42,7 @@ class Workspace:
         utils.set_seed_everywhere(cfg.seed)
         self.device = torch.device(cfg.device)
 
+        encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
         if cfg.use_wandb:
             exp_name = '_'.join([
                 cfg.experiment,
@@ -64,7 +65,6 @@ class Workspace:
                                 use_wandb=cfg.use_wandb)
         # create envs
 
-        encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
         pixel_size = 224 if (cfg.obs_type == 'pixels' and encoder_type == 'clip') else 84
         
         self.train_env = dmc.make(cfg.task, cfg.obs_type, cfg.frame_stack,
@@ -88,7 +88,6 @@ class Workspace:
         meta_specs = self.agent.get_meta_specs()
 
         # Decide whether replay stores raw pixels or precomputed CLIP embeddings
-        encoder_type = getattr(cfg.agent, 'encoder_type', 'cnn')
         self._clip_precache = (cfg.obs_type == 'pixels' and encoder_type == 'clip')
 
         if self._clip_precache:
@@ -325,45 +324,33 @@ class Workspace:
             self._global_step += 1
 
     def load_snapshot(self):
-        # If snapshot_path is specified directly, use it
         if self.cfg.get('snapshot_path', None) is not None:
             snapshot = Path(self.cfg.snapshot_path)
             if not snapshot.exists():
-                raise FileNotFoundError(
-                    f"snapshot_path specified but not found: {snapshot}"
-                )
-            print(f"[finetune] Loading snapshot from explicit path: {snapshot}")
+                raise FileNotFoundError(f"snapshot_path not found: {snapshot}")
             with snapshot.open('rb') as f:
-                payload = torch.load(f, weights_only=False,
-                                    map_location=self.device)
-        return payload
+                return torch.load(f, weights_only=False, map_location=self.device)
 
-        # Otherwise fall back to directory-based lookup
+        # fallback: directory-based lookup using snapshot_ts
         snapshot_base_dir = Path(self.cfg.snapshot_base_dir)
         domain, _ = self.cfg.task.split('_', 1)
-        snapshot_dir = (snapshot_base_dir / self.cfg.obs_type
-                        / domain / self.cfg.agent.name)
+        snapshot_dir = (snapshot_base_dir / self.cfg.obs_type / domain / self.cfg.agent.name)
 
         def try_load(seed):
-            snapshot = snapshot_dir / str(
-                seed) / f'snapshot_{self.cfg.snapshot_ts}.pt'
+            snapshot = snapshot_dir / str(seed) / f'snapshot_{self.cfg.snapshot_ts}.pt'
             if not snapshot.exists():
                 return None
             with snapshot.open('rb') as f:
-                payload = torch.load(f)
-            return payload
+                return torch.load(f, weights_only=False, map_location=self.device)
 
-        # try to load current seed
         payload = try_load(self.cfg.seed)
         if payload is not None:
             return payload
-        # otherwise try random seed
         while True:
             seed = np.random.randint(1, 11)
             payload = try_load(seed)
             if payload is not None:
                 return payload
-        return None
 
     def save_snapshot(self):
         snapshot_dir = self.work_dir / 'snapshots'

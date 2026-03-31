@@ -1,0 +1,27 @@
+# @package agent
+_target_: agent.lgsd.LGSD_PPO_Agent  # Replace with the path to your wrapper class
+name: lgsd_clip
+obs_type: ??? # populated by make_agent in pretrain.py
+obs_shape: ??? # populated by make_agent in pretrain.py
+action_shape: ??? # populated by make_agent in pretrain.py
+num_expl_steps: ???
+
+# Encoder specifics
+encoder_type: clip
+lang_embed_dim: 1536 # CLIP ViT-B/32 embedding dimension (adjust if using a different CLIP model)
+
+# LGSD Skill / Representation Hyperparameters
+skill_dim: 2                # 2 for locomotion (Ant/Cheetah), 3 for manipulation [cite: 688]
+init_lambda: 300.0          # Initial Lagrange coefficient [cite: 688]
+epsilon: 0.01               # Margin for the language distance constraint 
+lgsd_lr: 0.0001             # Representation network learning rate [cite: 688]
+
+# PPO Hyperparameters (from LGSD Paper Appendix F.2.2) [cite: 688]
+learning_rate: 0.0001
+batch_size: 256           # 32768 for locomotion, 16384 for manipulation [cite: 688]
+n_steps: 2048                 # Horizon length [cite: 688]
+clip_range: 0.2             # PPO clip threshold [cite: 688]
+n_epochs: 5                 # PPO number of epochs [cite: 688]
+gae_lambda: 0.95            # GAE lambda [cite: 688]
+gamma: 0.99                 # Discount factor [cite: 688]
+ent_coef: 0.0001            # Entropy coefficient [cite: 688]

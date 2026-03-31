@@ -285,6 +285,7 @@ class Workspace:
             current_emb = next_emb
 
             episode_step += 1
+            self._global_step += 1
         
         print(f"[pretrain] Training complete at frame {self.global_frame}, saving final snapshot.")
         self.save_snapshot()

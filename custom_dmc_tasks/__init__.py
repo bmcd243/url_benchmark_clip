@@ -1,4 +1,4 @@
-from custom_dmc_tasks import cheetah, walker, hopper, quadruped, jaco, texturedwalker, texturedquadruped
+from custom_dmc_tasks import cheetah, walker, hopper, quadruped, jaco, texturedwalker, texturedquadruped, texturedcheetah
 
 
 def make(domain, task,
