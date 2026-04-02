@@ -20,7 +20,7 @@ num_eval_episodes: 10
 snapshot_ts: 100000
 snapshots: [100000]
 # snapshot_base_dir: ./models
-snapshot_base_dir: /mnt/fast0/bm844/models
+snapshot_base_dir: /mnt/faster0/bm844/models
 # replay buffer
 replay_buffer_size: 1000000
 replay_buffer_num_workers: 0
@@ -40,9 +40,9 @@ experiment: finetune
 
 hydra:
   run:
-    dir: /mnt/fast0/bm844/exp_local/finetune/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_seed${seed}
+    dir: /mnt/faster0/bm844/exp_local/finetune/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}_${task}_seed${seed}
   sweep:
-    dir: /mnt/fast0/bm844/exp_sweep/finetune/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${task}
+    dir: /mnt/faster0/bm844/exp_sweep/finetune/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${task}
     subdir: seed${seed}
 
   launcher:

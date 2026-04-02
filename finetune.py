@@ -13,6 +13,7 @@ from pathlib import Path
 import hydra
 import numpy as np
 import torch
+import omegaconf
 from dm_env import specs
 import wandb
 
@@ -56,7 +57,8 @@ class Workspace:
                 project="urlb",
                 group=f"{cfg.agent.name}_{cfg.task}",   # group all seeds together
                 name=exp_name,
-                tags=[cfg.experiment, cfg.agent.name, cfg.task, cfg.obs_type, encoder_type]
+                tags=[cfg.experiment, cfg.agent.name, cfg.task, cfg.obs_type, encoder_type],
+                config=config
             )
 
         # create logger
@@ -78,6 +80,17 @@ class Workspace:
                                 self.train_env.action_spec(),
                                 cfg.num_seed_frames // cfg.action_repeat,
                                 cfg.agent)
+
+        if cfg.use_wandb:
+            try:
+                full_cfg = omegaconf.OmegaConf.to_container(
+                    cfg, resolve=True, throw_on_missing=True)
+                wandb.config.update(full_cfg, allow_val_change=True)
+            except omegaconf.errors.MissingMandatoryValue:
+                # Ignore unresolved Hydra placeholders and still log available keys.
+                partial_cfg = omegaconf.OmegaConf.to_container(
+                    cfg, resolve=True, throw_on_missing=False)
+                wandb.config.update(partial_cfg, allow_val_change=True)
 
         # initialize from pretrained
         if cfg.snapshot_ts > 0:

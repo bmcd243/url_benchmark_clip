@@ -19,6 +19,7 @@ class LGSDRolloutBufferSamples(NamedTuple):
     skills: torch.Tensor
     next_observations: torch.Tensor
     d_lang: torch.Tensor
+    raw_observations: torch.Tensor
 
 class LGSDRolloutBuffer(RolloutBuffer):
     def __init__(self, *args, skill_dim=16, lang_embed_dim=512, **kwargs):
@@ -29,16 +30,18 @@ class LGSDRolloutBuffer(RolloutBuffer):
     def reset(self) -> None:
         super().reset()
         self.skills = np.zeros((self.buffer_size, self.n_envs, self.skill_dim), dtype=np.float32)
+        self.raw_observations = np.zeros((self.buffer_size, self.n_envs, 1536), dtype=np.float32)  # full CLIP
         self.next_observations = np.zeros((self.buffer_size, self.n_envs, self.lang_embed_dim), dtype=np.float32)
         self.d_lang = np.zeros((self.buffer_size, self.n_envs), dtype=np.float32)
 
-    def add(self, *args, skill=None, next_obs=None, d_lang=None, **kwargs) -> None:
+    def add(self, *args, skill=None, next_obs=None, d_lang=None, raw_obs=None, **kwargs) -> None:
         self.skills[self.pos] = np.array(skill).copy()
         self.next_observations[self.pos] = np.array(next_obs).copy()
         self.d_lang[self.pos] = np.array(d_lang).copy()
+        self.raw_observations[self.pos] = np.array(raw_obs).copy()
         super().add(*args, **kwargs)
 
-    def _get_samples(self, batch_inds: np.ndarray, env=None) -> LGSDRolloutBufferSamples:
+    def _get_samples(self, batch_inds, env=None):
         samples = super()._get_samples(batch_inds, env)
         return LGSDRolloutBufferSamples(
             observations=samples.observations,
@@ -49,16 +52,22 @@ class LGSDRolloutBuffer(RolloutBuffer):
             returns=samples.returns,
             skills=self.to_torch(self.skills.reshape(-1, self.skill_dim)[batch_inds]),
             next_observations=self.to_torch(self.next_observations.reshape(-1, self.lang_embed_dim)[batch_inds]),
-            d_lang=self.to_torch(self.d_lang.reshape(-1)[batch_inds])
+            d_lang=self.to_torch(self.d_lang.reshape(-1)[batch_inds]),
+            raw_observations=self.to_torch(self.raw_observations.reshape(-1, 1536)[batch_inds])
         )
 
 class LGSDNetworks(nn.Module):
     def __init__(self, obs_dim, skill_dim, lang_embed_dim, init_lambda=300.0):
         super().__init__()
+        self.clip_projector = nn.Sequential(
+            nn.Linear(obs_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, 64)
+        )
         self.phi = nn.Sequential(
-            nn.Linear(obs_dim, 256), nn.ELU(),
-            nn.Linear(256, 256), nn.ELU(),
-            nn.Linear(256, 128), nn.ELU(),
+            nn.Linear(obs_dim, 256), nn.ReLU(),
+            nn.Linear(256, 256), nn.ReLU(),
+            nn.Linear(256, 128), nn.ReLU(),
             nn.Linear(128, skill_dim)
         )
         self.psi = nn.Sequential(
@@ -98,7 +107,7 @@ class LGSD_PPO_Agent:
         self.gamma = gamma
         self.gae_lambda = gae_lambda
         
-        self.ppo_obs_dim = obs_shape[0] + skill_dim
+        self.ppo_obs_dim = 64 + skill_dim
         self.action_dim = action_shape[0]
         
         if encoder_type == 'clip':
@@ -130,7 +139,12 @@ class LGSD_PPO_Agent:
         )
 
     def get_action_and_value(self, obs, z):
-        policy_input_np = np.concatenate([obs, z], axis=-1)
+        obs_ts = torch.as_tensor(obs).float().to(self.device)
+        with torch.no_grad():
+            projected = self.lgsd_nets.clip_projector(obs_ts)
+        policy_input_np = np.concatenate([
+            projected.cpu().numpy(), z
+        ], axis=-1)
         policy_input_ts = torch.as_tensor(policy_input_np).float().to(self.device).unsqueeze(0)
         with torch.no_grad():
             distribution = self.ppo.policy.get_distribution(policy_input_ts)
@@ -149,7 +163,11 @@ class LGSD_PPO_Agent:
 
     def update(self, last_obs, last_z, last_done):
         with torch.no_grad():
-            last_input = np.concatenate([last_obs, last_z], axis=-1)
+            last_obs_ts = torch.as_tensor(last_obs).float().to(self.device)
+            last_projected = self.lgsd_nets.clip_projector(last_obs_ts)
+            last_input = np.concatenate([
+                last_projected.cpu().numpy(), last_z
+            ], axis=-1)
             last_input_ts = torch.as_tensor(last_input).float().to(self.device).unsqueeze(0)
             last_value = self.ppo.policy.predict_values(last_input_ts)
         
@@ -158,8 +176,8 @@ class LGSD_PPO_Agent:
         for rollout_data in self.rollout_buffer.get(self.batch_size):
             # rollout_data.observations contains [state, skill]. 
             # We slice off the skill dimensions to get the pure state (1536-d).
-            s = rollout_data.observations[:, :-self.skill_dim]
-            s_next = rollout_data.next_observations
+            s = rollout_data.raw_observations          # 1536-dim → input to phi
+            s_next = rollout_data.next_observations    # 1536-dim → input to phi
             z = rollout_data.skills
             d_lang = rollout_data.d_lang
 

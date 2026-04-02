@@ -14,12 +14,12 @@ discount: 0.99
 num_train_frames: 2000010
 num_seed_frames: 4000
 # eval
-eval_every_frames: 10000
+eval_every_frames: 100000
 num_eval_episodes: 10
 # snapshot
 snapshots: [100000, 500000, 1000000, 2000000]
 # snapshot_dir: ../../../models/${obs_type}/${domain}/${agent.name}/${seed}
-snapshot_dir: /mnt/fast0/bm844/models/${obs_type}/${domain}/${agent.name}/${seed}
+snapshot_dir: /mnt/faster0/bm844/models/${obs_type}/${domain}/${agent.name}/${seed}
 # replay buffer
 replay_buffer_size: 500000
 replay_buffer_num_workers: 0
@@ -29,7 +29,7 @@ update_encoder: true # should always be true for pre-training
 # misc
 seed: 1
 device: cuda
-save_video: true
+save_video: false
 save_train_video: false
 use_tb: false
 use_wandb: false
@@ -39,9 +39,9 @@ experiment: pretrain
 
 hydra:
   run:
-    dir: /mnt/fast0/bm844/exp_local/pretrain/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
+    dir: /mnt/faster0/bm844/exp_local/pretrain/${now:%Y.%m.%d}/${now:%H%M%S}_${agent.name}
   sweep:
-    dir: /mnt/fast0/bm844/exp_sweep/pretrain/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
+    dir: /mnt/faster0/bm844/exp_sweep/pretrain/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}
     subdir: ${hydra.job.num}
 
 
