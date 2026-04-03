@@ -157,7 +157,7 @@ def stand(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 def run(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Run task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _RUN_SPEED)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Move(desired_speed=_RUN_SPEED, random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,
@@ -166,7 +166,7 @@ def run(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 
 @SUITE.add()
 def jump(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
-  """Returns the Walk task."""
+  """Returns the Jump task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
   physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Jump(desired_height=_JUMP_HEIGHT, random=random)
@@ -177,7 +177,7 @@ def jump(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 
 @SUITE.add()
 def roll(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
-  """Returns the Walk task."""
+  """Returns the Roll task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
   physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Roll(desired_speed=_WALK_SPEED, random=random)
@@ -225,7 +225,7 @@ def fetch(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
 def walk(time_limit=_DEFAULT_TIME_LIMIT, random=None, environment_kwargs=None):
   """Returns the Walk task."""
   xml_string = make_model(floor_size=_DEFAULT_TIME_LIMIT * _WALK_SPEED)
-  physics = Physics.from_xml_string(xml_string, common.ASSETS)
+  physics = Physics.from_xml_string(xml_string, _get_custom_assets())
   task = Move(desired_speed=_WALK_SPEED, random=random)
   environment_kwargs = environment_kwargs or {}
   return control.Environment(physics, task, time_limit=time_limit,

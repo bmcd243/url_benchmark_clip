@@ -153,8 +153,7 @@ class LGSDWorkspace:
         with snapshot.open('wb') as f:
             torch.save(payload, f)
         if self.cfg.use_wandb:
-            wandb.save(str(snapshot), policy='now')
-            snapshot.unlink(missing_ok=True)
+            wandb.save(str(snapshot), base_path=str(snapshot_dir), policy='now')
         print(f"[pretrain_lgsd] Snapshot saved: {snapshot}")
 
     def train(self):

@@ -290,24 +290,35 @@ class Workspace:
         print(f"[pretrain] Training complete at frame {self.global_frame}, saving final snapshot.")
         self.save_snapshot()
 
-    def save_snapshot(self):
-        snapshot_dir = self.work_dir / Path(self.cfg.snapshot_dir)
+    def save_snapshot(self, frame_tag=None):
+        frame = self._global_step * self.cfg.action_repeat
+        tag = frame if frame_tag is None else frame_tag
+        
+        # Mirror pretrain.py snapshot_dir logic
+        snapshot_dir = Path(self.cfg.snapshot_dir.replace(
+            '${obs_type}', self.cfg.obs_type
+        ).replace(
+            '${domain}', self.cfg.domain
+        ).replace(
+            '${agent.name}', self.cfg.agent.name
+        ).replace(
+            '${seed}', str(self.cfg.seed)
+        ))
         snapshot_dir.mkdir(exist_ok=True, parents=True)
+        
         run_id = f"{self.work_dir.parent.name}_{self.work_dir.name}"
-        snapshot = snapshot_dir / f'snapshot_{run_id}_{self.global_frame}.pt'
-        keys_to_save = ['agent', '_global_step', '_global_episode']
-        payload = {k: self.__dict__[k] for k in keys_to_save}
-        if hasattr(self.agent, 'encoder') and hasattr(self.agent.encoder, 'model'):
-            save_agent = copy.copy(self.agent)
-            del save_agent.encoder
-            payload['agent'] = save_agent
-            payload['encoder_type'] = 'clip'
+        snapshot = snapshot_dir / f'snapshot_{run_id}_{tag}.pt'
+        
+        payload = {
+            'agent': self.agent,
+            '_global_step': self._global_step,
+            '_global_episode': self._global_episode
+        }
         with snapshot.open('wb') as f:
             torch.save(payload, f)
         if self.cfg.use_wandb:
-            wandb.save(str(snapshot), policy='now')
-            snapshot.unlink(missing_ok=True)
-        print(f"[pretrain] Snapshot saved: {snapshot}")
+            wandb.save(str(snapshot), base_path=str(snapshot_dir), policy='now')
+        print(f"[pretrain_lgsd] Snapshot saved: {snapshot}")
 
     def _maybe_encode_obs(self, obs):
         """Encode obs with CLIP before storing in replay buffer."""

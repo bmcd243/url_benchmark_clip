@@ -15,7 +15,6 @@ import numpy as np
 import torch
 import omegaconf
 from dm_env import specs
-import wandb
 
 import dmc
 import utils
@@ -51,14 +50,17 @@ class Workspace:
                 cfg.task,
                 cfg.obs_type,
                 encoder_type,
-                f'seed{cfg.seed}'      # explicit seed label
+                f'seed{cfg.seed}'
             ])
+            run_config = omegaconf.OmegaConf.to_container(
+                cfg, resolve=True, throw_on_missing=False
+            )
             wandb.init(
                 project="urlb",
-                group=f"{cfg.agent.name}_{cfg.task}",   # group all seeds together
+                group=f"{cfg.agent.name}_{cfg.task}",
                 name=exp_name,
                 tags=[cfg.experiment, cfg.agent.name, cfg.task, cfg.obs_type, encoder_type],
-                config=config
+                config=run_config
             )
 
         # create logger
@@ -93,9 +95,9 @@ class Workspace:
                 wandb.config.update(partial_cfg, allow_val_change=True)
 
         # initialize from pretrained
-        if cfg.snapshot_ts > 0:
-            pretrained_agent = self.load_snapshot()['agent']
-            self.agent.init_from(pretrained_agent)
+        # if cfg.snapshot_ts > 0:
+        #     pretrained_agent = self.load_snapshot()['agent']
+        #     self.agent.init_from(pretrained_agent)
 
         # get meta specs
         meta_specs = self.agent.get_meta_specs()

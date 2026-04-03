@@ -24,4 +24,4 @@ encoder_type: clip
 clip_model_name: ViT-B-32
 clip_pretrained: openai
 skill_dim: 16
-# te_spectral_coef: removed — spectral norm is now a hook, no coef needed
+nstep: 1

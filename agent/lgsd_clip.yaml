@@ -25,3 +25,4 @@ n_epochs: 5                 # PPO number of epochs [cite: 688]
 gae_lambda: 0.95            # GAE lambda [cite: 688]
 gamma: 0.99                 # Discount factor [cite: 688]
 ent_coef: 0.0001            # Entropy coefficient [cite: 688]
+nstep: 1

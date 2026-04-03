@@ -114,9 +114,8 @@ class FinetuneLGSDWorkspace:
             
             while not time_step.last():
                 with torch.no_grad():
-                    policy_input = np.concatenate([current_emb, current_z], axis=-1)
-                    policy_input_ts = torch.as_tensor(policy_input).float().to(self.device).unsqueeze(0)
-                    action = self.agent.ppo.policy.predict(policy_input_ts, deterministic=True)[0][0]
+                    policy_input = self._get_policy_input(current_emb, current_z)
+                    action = self.agent.ppo.policy.predict(policy_input, deterministic=True)[0]
                 
                 time_step = self.eval_env.step(action)
                 current_emb = self._encode_obs(time_step.observation)
@@ -199,7 +198,7 @@ class FinetuneLGSDWorkspace:
 
             # 2. Phase B Only: Standard SB3 PPO Updates (Skip LGSD representation updates)
             with torch.no_grad():
-                last_input = np.concatenate([current_emb, current_z], axis=-1)
+                last_input = self._get_policy_input(current_emb, current_z)
                 last_input_ts = torch.as_tensor(last_input).float().to(self.device).unsqueeze(0)
                 last_value = self.agent.ppo.policy.predict_values(last_input_ts)
             
@@ -218,6 +217,12 @@ class FinetuneLGSDWorkspace:
             
             self.agent.rollout_buffer.reset()
             self.logger.log_metrics(metrics, self._global_step * self.cfg.action_repeat, ty='train')
+    
+    def _get_policy_input(self, emb, z):
+        emb_ts = torch.as_tensor(emb).float().to(self.device)
+        with torch.no_grad():
+            projected = self.agent.lgsd_nets.clip_projector(emb_ts)
+        return np.concatenate([projected.cpu().numpy(), z], axis=-1)
 
 @hydra.main(config_path='.', config_name='finetune')
 def main(cfg):
