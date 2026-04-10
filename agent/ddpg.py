@@ -40,7 +40,9 @@ class CLIPEncoder(nn.Module):
                  device="cuda" if torch.cuda.is_available() else "cpu",
                  clip_model_name="ViT-g-14",
                  clip_pretrained="laion2b_s34b_b88k",
-                 concat_stacked_frames=True):
+                 concat_stacked_frames=True,
+                 normalize_embeddings=True,
+                 freeze=True):
         super().__init__()
         self.device = device
         self.concat_stacked_frames = concat_stacked_frames
@@ -58,8 +60,9 @@ class CLIPEncoder(nn.Module):
         self.model.eval()
         
         # Freeze all CLIP parameters
-        for param in self.model.parameters():
-            param.requires_grad = False
+        if freeze:
+            for param in self.model.parameters():
+                param.requires_grad = False
             
         self.base_dim = int(self.model.visual.output_dim)
         self.repr_dim = (self.base_dim * self.num_frames
@@ -74,6 +77,7 @@ class CLIPEncoder(nn.Module):
                       (0.26862954, 0.26130258, 0.27577711))
         self.normalize = T.Normalize(mean=mean, std=std)
         self.use_amp = str(self.device).startswith('cuda')
+        self.normalize_embeddings = normalize_embeddings
 
     def forward(self, obs):
         # obs is stacked RGB: (B, 3*T, H, W)
@@ -98,9 +102,9 @@ class CLIPEncoder(nn.Module):
                 emb = self.model.encode_image(frames)
 
         emb = emb.float()
-        emb = F.normalize(emb, dim=-1)
+        if self.normalize_embeddings:
+            emb = F.normalize(emb, dim=-1)
         emb = emb.reshape(B, num_frames, self.base_dim)
-
         if self.concat_stacked_frames:
             emb = emb.reshape(B, num_frames * self.base_dim)
         else:
@@ -217,9 +221,10 @@ class DDPGAgent:
                  use_wandb,
                  meta_dim=0,
                  encoder_type='cnn',
-                 clip_model_name='ViT-g-14',
-                 clip_pretrained='laion2b_s34b_b88k',
-                 clip_concat_stacked_frames=True):
+                 clip_model_name='ViT-B-32',
+                 clip_pretrained='openai',
+                 clip_concat_stacked_frames=True,
+                 clip_normalize=True):
         self.reward_free = reward_free
         self.obs_type = obs_type
         self.obs_shape = obs_shape
@@ -247,8 +252,11 @@ class DDPGAgent:
                     device=device,
                     clip_model_name=clip_model_name,
                     clip_pretrained=clip_pretrained,
-                    concat_stacked_frames=clip_concat_stacked_frames).to(device)
-                self.update_encoder = False  # CLIP weights are frozen — no optimizer needed
+                    concat_stacked_frames=clip_concat_stacked_frames,
+                    normalize_embeddings=clip_normalize,
+                    freeze=not update_encoder
+                    ).to(device)
+                self.update_encoder = update_encoder  # CLIP weights are frozen — no optimizer needed
                 self.obs_precached = True
                 print(
                     f"[DDPGAgent] OpenCLIP encoder loaded ({clip_model_name}, {clip_pretrained}), "

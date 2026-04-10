@@ -141,10 +141,22 @@ class LGSDWorkspace:
     def save_snapshot(self, frame_tag=None):
         frame = self._global_step * self.cfg.action_repeat
         tag = frame if frame_tag is None else frame_tag
-        snapshot_dir = self.work_dir / 'snapshots'
+        
+        # Mirror pretrain.py snapshot_dir logic
+        snapshot_dir = Path(self.cfg.snapshot_dir.replace(
+            '${obs_type}', self.cfg.obs_type
+        ).replace(
+            '${domain}', self.cfg.domain
+        ).replace(
+            '${agent.name}', self.cfg.agent.name
+        ).replace(
+            '${seed}', str(self.cfg.seed)
+        ))
         snapshot_dir.mkdir(exist_ok=True, parents=True)
+        
         run_id = f"{self.work_dir.parent.name}_{self.work_dir.name}"
         snapshot = snapshot_dir / f'snapshot_{run_id}_{tag}.pt'
+        
         payload = {
             'agent': self.agent,
             '_global_step': self._global_step,
