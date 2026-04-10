@@ -34,7 +34,6 @@ clip_pretrained: openai
 # clip_pretrained: laion2b_s34b_b88k
 
 clip_concat_stacked_frames: true
-update_encoder: false
 
 
 # APS-specific

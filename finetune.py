@@ -94,10 +94,18 @@ class Workspace:
                     cfg, resolve=True, throw_on_missing=False)
                 wandb.config.update(partial_cfg, allow_val_change=True)
 
-        # initialize from pretrained
-        # if cfg.snapshot_ts > 0:
-        #     pretrained_agent = self.load_snapshot()['agent']
-        #     self.agent.init_from(pretrained_agent)
+        snapshot_specified = (
+        self.cfg.get('snapshot_path', None) is not None or 
+        self.cfg.snapshot_ts > 0
+    )
+        if snapshot_specified:
+            print(f"[finetune] Loading pretrained snapshot...")
+            payload = self.load_snapshot()
+            pretrained_agent = payload['agent']
+            self.agent.init_from(pretrained_agent)
+            print(f"[finetune] Snapshot loaded successfully")
+        else:
+            print(f"[finetune] WARNING: No snapshot specified, starting from random weights")
 
         # get meta specs
         meta_specs = self.agent.get_meta_specs()
@@ -366,27 +374,6 @@ class Workspace:
             payload = try_load(seed)
             if payload is not None:
                 return payload
-
-    def save_snapshot(self):
-        snapshot_dir = self.work_dir / 'snapshots'
-        snapshot_dir.mkdir(exist_ok=True, parents=True)
-        snapshot = snapshot_dir / f'snapshot_{self.global_frame}.pt'
-        keys_to_save = ['agent', '_global_step', '_global_episode']
-        payload = {k: self.__dict__[k] for k in keys_to_save}
-        with snapshot.open('wb') as f:
-            torch.save(payload, f)
-
-        # try to load current seed
-        payload = try_load(self.cfg.seed)
-        if payload is not None:
-            return payload
-        # otherwise try random seed
-        while True:
-            seed = np.random.randint(1, 11)
-            payload = try_load(seed)
-            if payload is not None:
-                return payload
-        return None
 
 
 @hydra.main(config_path='.', config_name='finetune')
