@@ -52,19 +52,10 @@ class ZeroShotEvaluator:
             action_shape=self.env.action_spec().shape,
             num_expl_steps=0
         )
-        
-        # --- 4. Load Snapshot (Matches finetune.py logic) ---
-        domain = cfg.task.split('_')[0]
-        snapshot_dir = Path(cfg.snapshot_base_dir) / cfg.obs_type / domain / cfg.agent.name / str(cfg.seed)
-        snapshot_path = snapshot_dir / f'snapshot_{cfg.snapshot_ts}.pt'
-        
-        if not snapshot_path.exists():
-            raise FileNotFoundError(f"Snapshot not found at {snapshot_path}")
             
-        with snapshot_path.open('rb') as f:
-            payload = torch.load(f, weights_only=False)
+        payload = self._load_snapshot()
         self.agent.init_from(payload['agent'])
-        self.agent.train(False) 
+        self.agent.train(False)
         
         # --- 5. Load CLIP & Video Recorder ---
         print("Loading CLIP (ViT-B/32)...")
@@ -75,6 +66,46 @@ class ZeroShotEvaluator:
         # allowing us to do custom prompt-based logging later.
         self.video_recorder = VideoRecorder(self.work_dir, camera_id=cam_id, use_wandb=False)
 
+    def _load_snapshot(self):
+        if self.cfg.get('snapshot_path', None) is not None:
+            snapshot = Path(self.cfg.snapshot_path)
+            if not snapshot.exists():
+                raise FileNotFoundError(f"snapshot_path not found: {snapshot}")
+            
+            try:
+                frame_count = int(snapshot.stem.split('_')[-1])
+                print(f"[zero_shot] Loading snapshot:")
+                print(f"  path  : {snapshot}")
+                print(f"  frames: {frame_count:,}")
+                print(f"  agent : {self.cfg.agent.name}")
+                print(f"  task  : {self.cfg.task}")
+                print(f"  seed  : {self.cfg.seed}")
+            except (ValueError, IndexError):
+                print(f"[zero_shot] Loading snapshot: {snapshot}")
+
+            with snapshot.open('rb') as f:
+                return torch.load(f, weights_only=False, map_location=self.device)
+
+        # fallback: directory-based lookup using snapshot_ts
+        domain = self.cfg.task.split('_')[0]
+        snapshot_dir = (Path(self.cfg.snapshot_base_dir) / self.cfg.obs_type / 
+                        domain / self.cfg.agent.name / str(self.cfg.seed))
+        snapshot_path = snapshot_dir / f'snapshot_{self.cfg.snapshot_ts}.pt'
+        
+        if not snapshot_path.exists():
+            raise FileNotFoundError(f"Snapshot not found at {snapshot_path}")
+        
+        print(f"[zero_shot] Loading snapshot:")
+        print(f"  path  : {snapshot_path}")
+        print(f"  frames: {self.cfg.snapshot_ts:,}")
+        print(f"  agent : {self.cfg.agent.name}")
+        print(f"  task  : {self.cfg.task}")
+        print(f"  seed  : {self.cfg.seed}")
+
+        with snapshot_path.open('rb') as f:
+            return torch.load(f, weights_only=False, map_location=self.device) 
+    
+    
     def generate_candidate_skills(self):
         candidates = []
         if 'diayn' in self.cfg.agent.name:
@@ -106,7 +137,10 @@ class ZeroShotEvaluator:
             if time_step.last():
                 break
                 
-            action = self.agent.act(time_step.observation, meta, 0, eval_mode=True)
+            obs = torch.as_tensor(time_step.observation, device=self.device).unsqueeze(0).float()
+            with torch.no_grad():
+                emb = self.agent.encoder(obs).squeeze(0).cpu().numpy()
+            action = self.agent.act(emb, meta, 0, eval_mode=True, obs_already_encoded=True)
             time_step = self.env.step(action)
             
             img_array = self.env.physics.render(height=224, width=224, camera_id=cam_id)
@@ -162,7 +196,10 @@ class ZeroShotEvaluator:
             
             steps = 0
             while not time_step.last() and steps < 250:
-                action = self.agent.act(time_step.observation, meta, 0, eval_mode=True)
+                obs = torch.as_tensor(time_step.observation, device=self.device).unsqueeze(0).float()
+                with torch.no_grad():
+                    emb = self.agent.encoder(obs).squeeze(0).cpu().numpy()
+                action = self.agent.act(emb, meta, 0, eval_mode=True, obs_already_encoded=True)
                 time_step = self.env.step(action)
                 self.video_recorder.record(self.env)
                 steps += 1

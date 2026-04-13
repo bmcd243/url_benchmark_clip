@@ -19,7 +19,8 @@ use_tb: false
 
 # pretrained
 snapshot_ts: 2000000
-snapshot_base_dir: /mnt/fast0/bm844/models
+snapshot_base_dir: /mnt/faster0/bm844/models
+snapshot_path: null
 
 # search settings
 num_candidates: 16

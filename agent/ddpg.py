@@ -221,6 +221,7 @@ class DDPGAgent:
                  use_wandb,
                  meta_dim=0,
                  encoder_type='cnn',
+                 update_encoder=False,
                  clip_model_name='ViT-B-32',
                  clip_pretrained='openai',
                  clip_concat_stacked_frames=True,

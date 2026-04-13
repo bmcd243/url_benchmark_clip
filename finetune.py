@@ -99,11 +99,10 @@ class Workspace:
         self.cfg.snapshot_ts > 0
     )
         if snapshot_specified:
-            print(f"[finetune] Loading pretrained snapshot...")
             payload = self.load_snapshot()
             pretrained_agent = payload['agent']
             self.agent.init_from(pretrained_agent)
-            print(f"[finetune] Snapshot loaded successfully")
+            print(f"[finetune] Snapshot loaded successfully — training from {self.cfg.snapshot_ts:,} pretrain frames")
         else:
             print(f"[finetune] WARNING: No snapshot specified, starting from random weights")
 
@@ -262,6 +261,17 @@ class Workspace:
                     meta        = self.agent.init_meta()
                     current_emb = self._encode_obs(time_step.observation)
 
+            
+            # Force replay buffer workers to fetch probe episodes from disk
+            self._replay_iter = None  # reset so workers reinitialise
+            # Warm up — first call triggers _try_fetch in each worker
+            for _ in range(self.cfg.replay_buffer_num_workers + 1):
+                try:
+                    _ = next(self.replay_iter)
+                except StopIteration:
+                    break
+            self._replay_iter = None  # reset again so regress_meta gets a fresh iterator
+            
             # Select best skill from probe transitions
             # This sets agent.solved_meta, which init_meta() returns from now on
             meta = self.agent.regress_meta(self.replay_iter, 0)
@@ -351,6 +361,21 @@ class Workspace:
             snapshot = Path(self.cfg.snapshot_path)
             if not snapshot.exists():
                 raise FileNotFoundError(f"snapshot_path not found: {snapshot}")
+            
+            # Parse frame count from filename, e.g. snapshot_2026.04.03_083436_aps_clip_2000000.pt
+            try:
+                frame_count = int(snapshot.stem.split('_')[-1])
+                self.cfg.snapshot_ts = frame_count
+            except (ValueError, IndexError):
+                pass  # leave snapshot_ts as-is if filename doesn't match expected format
+
+            print(f"[finetune] Loading snapshot:")
+            print(f"  path  : {snapshot}")
+            print(f"  frames: {self.cfg.snapshot_ts:,}")
+            print(f"  agent : {self.cfg.agent.name}")
+            print(f"  task  : {self.cfg.task}")
+            print(f"  seed  : {self.cfg.seed}")
+
             with snapshot.open('rb') as f:
                 return torch.load(f, weights_only=False, map_location=self.device)
 

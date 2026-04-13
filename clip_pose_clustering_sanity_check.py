@@ -32,13 +32,8 @@ def extract_embeddings(frames, device):
     )
     clip_model_g14.eval()
 
-    # Randomly initialised URLB CNN
-    urlb_cnn = Encoder(obs_shape=(3, 84, 84)).to(device)
-    urlb_cnn.eval()
-
     clip_b32_embeddings = []
     clip_g14_embeddings = []
-    cnn_embeddings = []
 
     with torch.no_grad():
         for frame in frames:
@@ -54,15 +49,10 @@ def extract_embeddings(frames, device):
             clip_g14_emb = clip_model_g14.encode_image(clip_g14_input)
             clip_g14_embeddings.append(clip_g14_emb.cpu().numpy().flatten())
 
-            # CNN
-            cnn_input = torch.tensor(frame.copy()).permute(2, 0, 1).unsqueeze(0).float().to(device)
-            cnn_emb = urlb_cnn(cnn_input)
-            cnn_embeddings.append(cnn_emb.cpu().numpy().flatten())
 
     return (
         np.array(clip_b32_embeddings),
         np.array(clip_g14_embeddings),
-        np.array(cnn_embeddings),
     )
 
 def plot_tsne(embeddings, labels, title, filename):
@@ -232,23 +222,17 @@ if __name__ == "__main__":
 
     frames, labels = collect_data_balanced(images_per_class=200)
 
-    clip_b32_embs, cnn_embs = extract_embeddings(frames, device)
+    clip_b32_embs, clip_g14_embs = extract_embeddings(frames, device)
 
     print("\n=== Quantitative Evaluation ===")
     evaluate_clustering(clip_b32_embs, labels, "CLIP ViT-B/32")
     evaluate_clustering(clip_g14_embs, labels, "CLIP ViT-g-14")
-    evaluate_clustering(cnn_embs,      labels, "CNN (random URLB)")
     print("================================\n")
 
-#     # Single plot set — coloured by pose only
-#     # CNN should fail because lighting + position varies continuously
-#     # so CNN can't use pixel location or brightness as a shortcut
+
     plot_tsne(clip_b32_embs, labels,
               "CLIP ViT-B/32 — coloured by pose",
               "tsne_clip_b32_by_pose.png")
     plot_tsne(clip_g14_embs, labels,
               "CLIP ViT-g-14 — coloured by pose",
               "tsne_clip_g14_by_pose.png")
-    plot_tsne(cnn_embs, labels,
-              "CNN (random) — coloured by pose",
-              "tsne_cnn_by_pose.png")
