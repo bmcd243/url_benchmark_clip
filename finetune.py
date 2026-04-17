@@ -270,7 +270,6 @@ class Workspace:
                     _ = next(self.replay_iter)
                 except StopIteration:
                     break
-            self._replay_iter = None  # reset again so regress_meta gets a fresh iterator
             
             # Select best skill from probe transitions
             # This sets agent.solved_meta, which init_meta() returns from now on
