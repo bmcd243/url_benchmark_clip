@@ -217,7 +217,6 @@ class Workspace:
         # PROBE PHASE (4096 steps)
         # Collect transitions with extrinsic reward using the pretrained policy,
         # then call regress_meta to select the best skill/task direction.
-        # This applies to DIAYN, APS, and LGSD equally.
         # ------------------------------------------------------------------ #
         if hasattr(self.agent, 'regress_meta'):
             print(f"[finetune] Starting probe phase ({self.cfg.num_init_steps} steps)...")
@@ -228,8 +227,6 @@ class Workspace:
             meta      = self.agent.init_meta()
             current_emb = self._encode_obs(time_step.observation)
 
-            # Store probe transitions — extrinsic reward is available here
-            # (reward_free=False during finetuning, so extr_reward is real)
             if self._clip_precache:
                 self.replay_storage.add(
                     time_step._replace(observation=current_emb), meta)
@@ -262,7 +259,6 @@ class Workspace:
                     current_emb = self._encode_obs(time_step.observation)
 
             
-            # Force replay buffer workers to fetch probe episodes from disk
             self._replay_iter = None  # reset so workers reinitialise
             # Warm up — first call triggers _try_fetch in each worker
             for _ in range(self.cfg.replay_buffer_num_workers + 1):

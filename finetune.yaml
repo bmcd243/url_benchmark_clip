@@ -53,5 +53,5 @@ hydra:
     mem_gb: 160
     nodes: 1
     submitit_folder: /mnt/fast0/bm844/exp_sweep/${now:%Y.%m.%d}/${now:%H%M}_${agent.name}_${experiment}/.slurm
-num_init_steps: 4096   # probe phase length — matches APS/LGSD yaml values
+num_init_steps: 4096
 snapshot_path: null

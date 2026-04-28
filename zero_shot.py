@@ -28,7 +28,6 @@ class ZeroShotEvaluator:
         self.device = torch.device(cfg.device)
         self.work_dir = Path.cwd()
         
-        # --- 1. W&B Integration ---
         if getattr(cfg, 'use_wandb', False):
             exp_name = '_'.join([
                 getattr(cfg, 'experiment', 'zero_shot'), 
@@ -39,11 +38,10 @@ class ZeroShotEvaluator:
             ])
             wandb.init(project="urlb", group=cfg.agent.name, name=exp_name)
         
-        # --- 2. Setup Environment ---
         print(f"Loading Environment: {cfg.task}...")
         self.env = dmc.make(cfg.task, cfg.obs_type, cfg.frame_stack, cfg.action_repeat, cfg.seed)
         
-        # --- 3. Setup Agent ---
+
         print(f"Loading Agent: {cfg.agent.name}...")
         self.agent = hydra.utils.instantiate(
             cfg.agent, 
@@ -57,13 +55,11 @@ class ZeroShotEvaluator:
         self.agent.init_from(payload['agent'])
         self.agent.train(False)
         
-        # --- 5. Load CLIP & Video Recorder ---
+
         print("Loading CLIP (ViT-B/32)...")
         self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=self.device)
         
         cam_id = 2 if 'quadruped' in cfg.task else 0
-        # We set use_wandb=False here to prevent the default 'eval/video' logging, 
-        # allowing us to do custom prompt-based logging later.
         self.video_recorder = VideoRecorder(self.work_dir, camera_id=cam_id, use_wandb=False)
 
     def _load_snapshot(self):
