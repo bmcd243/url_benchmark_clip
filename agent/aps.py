@@ -288,7 +288,7 @@ class APSAgent(DDPGAgent):
             metrics['critic_q1'] = Q1.mean().item()
             metrics['critic_q2'] = Q2.mean().item()
             metrics['critic_loss'] = critic_loss.item()
-
+§
         # optimize critic
         self.critic_opt.zero_grad(set_to_none=True)
         critic_loss.backward()
